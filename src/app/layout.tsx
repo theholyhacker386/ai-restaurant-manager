@@ -4,8 +4,8 @@ import AuthProvider from "@/components/AuthProvider";
 import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
-  title: "The Porch Health Park",
-  description: "Financial dashboard for The Porch Health Park café",
+  title: "AI Restaurant Manager",
+  description: "AI-powered restaurant management platform",
 };
 
 export const viewport: Viewport = {

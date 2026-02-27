@@ -12,7 +12,6 @@ import {
   Legend,
   ReferenceLine,
 } from "recharts";
-import { useSquareSync } from "@/hooks/useSquareSync";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -88,9 +87,6 @@ export default function HourlyPage() {
     setLoading(false);
   }, [datePreset, customStart, customEnd]);
 
-  // Auto-sync Square data on page load if stale
-  const { syncing } = useSquareSync({ onSyncComplete: fetchData });
-
   useEffect(() => {
     fetchData();
   }, [fetchData]);
@@ -116,14 +112,6 @@ export default function HourlyPage() {
       </div>
 
       <div className="px-4 -mt-3 space-y-4">
-        {/* Sync indicator */}
-        {syncing && (
-          <div className="bg-porch-teal/10 border border-porch-teal/20 rounded-2xl px-4 py-3 flex items-center gap-3">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-porch-teal" />
-            <p className="text-xs text-porch-teal font-medium">Syncing with Square...</p>
-          </div>
-        )}
-
         {/* Date Range + Tabs */}
         <div className="bg-white rounded-2xl border border-porch-cream-dark/50 p-4">
           <div className="flex gap-2 overflow-x-auto pb-2">

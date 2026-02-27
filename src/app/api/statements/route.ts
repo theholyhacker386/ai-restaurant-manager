@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { ensurePlaidTables } from "@/lib/plaid";
 
 export async function GET() {
   try {
     const sql = getDb();
-    await ensurePlaidTables(sql);
 
     const statements = await sql`
       SELECT id, file_name, bank_name, statement_date, period_start, period_end,

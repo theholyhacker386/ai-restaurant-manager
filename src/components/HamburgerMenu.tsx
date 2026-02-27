@@ -287,9 +287,9 @@ export default function HamburgerMenu() {
         <div className="bg-porch-brown text-white px-5 pt-[env(safe-area-inset-top)] pb-4">
           <div className="flex items-center justify-between pt-4">
             <div>
-              <h2 className="text-base font-bold">The Porch</h2>
+              <h2 className="text-base font-bold">Restaurant Manager</h2>
               <p className="text-[11px] text-white/70 mt-0.5">
-                {userName ? `Hi, ${userName}` : "Health Park"}
+                {userName ? `Hi, ${userName}` : "AI-Powered"}
               </p>
             </div>
             <button

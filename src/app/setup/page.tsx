@@ -168,7 +168,7 @@ export default function SetupPage() {
     <div className="w-full max-w-sm">
       <div className="text-center mb-8">
         <h1 className="text-2xl font-bold text-porch-brown">
-          The Porch Health Park
+          AI Restaurant Manager
         </h1>
         <p className="text-sm text-porch-brown-light mt-1">
           Account Setup

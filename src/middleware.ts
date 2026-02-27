@@ -10,11 +10,6 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // Allow the Square webhook — it comes from Square's servers, not a user
-  if (pathname === "/api/square/webhook") {
-    return NextResponse.next();
-  }
-
   // Allow cron routes — called by Vercel Cron scheduler, not a user
   if (pathname.startsWith("/api/cron/")) {
     return NextResponse.next();

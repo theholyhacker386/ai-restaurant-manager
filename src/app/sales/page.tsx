@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSquareSync } from "@/hooks/useSquareSync";
 
 interface DailySale {
   date: string;
@@ -132,11 +131,8 @@ export default function SalesPage() {
       setError(null);
       const { startDate, endDate } = getActiveDateRange();
 
-      // Fetch display data from DB (sales + labor in parallel)
-      const [salesRes, laborRes] = await Promise.all([
-        fetch(`/api/sales?startDate=${startDate}&endDate=${endDate}`),
-        fetch(`/api/square/labor?startDate=${startDate}&endDate=${endDate}`),
-      ]);
+      // Fetch display data from DB
+      const salesRes = await fetch(`/api/sales?startDate=${startDate}&endDate=${endDate}`);
 
       if (salesRes.ok) {
         const salesData = await salesRes.json();
@@ -146,12 +142,6 @@ export default function SalesPage() {
       } else {
         throw new Error("Failed to load sales");
       }
-
-      if (laborRes.ok) {
-        const laborData = await laborRes.json();
-        setLaborTotals(laborData.totals || null);
-        setLaborShifts(laborData.shifts || []);
-      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -159,19 +149,9 @@ export default function SalesPage() {
     }
   }, [getActiveDateRange]);
 
-  // Auto-sync Square data on page load if stale, then reload display data
-  const { syncing, lastSyncError } = useSquareSync({ onSyncComplete: loadDisplayData });
-
   useEffect(() => {
     loadDisplayData();
   }, [loadDisplayData]);
-
-  // Show sync errors as a non-blocking warning
-  useEffect(() => {
-    if (lastSyncError && !error) {
-      setError("Square sync issue — showing cached data");
-    }
-  }, [lastSyncError]);
 
   const maxRevenue =
     dailySales.length > 0
@@ -259,18 +239,10 @@ export default function SalesPage() {
           )}
         </div>
 
-        {/* Sync indicator */}
-        {syncing && !loading && (
-          <div className="bg-porch-teal/10 border border-porch-teal/20 rounded-2xl px-4 py-3 flex items-center gap-3">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-porch-teal" />
-            <p className="text-xs text-porch-teal font-medium">Syncing with Square...</p>
-          </div>
-        )}
-
         {loading ? (
           <div className="flex flex-col items-center justify-center py-12 gap-3">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-porch-teal" />
-            <p className="text-xs text-porch-brown-light/50">{syncing ? "Syncing with Square..." : "Loading..."}</p>
+            <p className="text-xs text-porch-brown-light/50">Loading...</p>
           </div>
         ) : error ? (
           <div className="bg-red-50 text-status-danger rounded-2xl p-4 text-sm">

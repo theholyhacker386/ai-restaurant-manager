@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Login — The Porch Health Park",
+  title: "Login — AI Restaurant Manager",
 };
 
 export default function LoginLayout({

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSquareSync } from "@/hooks/useSquareSync";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,8 +49,6 @@ export default function SchedulePage() {
     }
     setLoading(false);
   }, [weekOffset]);
-
-  const { syncing } = useSquareSync({ onSyncComplete: fetchSchedule });
 
   useEffect(() => {
     fetchSchedule();
@@ -106,12 +103,12 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* Syncing / Loading state */}
-      {(syncing || loading) && (
+      {/* Loading state */}
+      {loading && (
         <div className="flex items-center justify-center gap-2 py-6">
           <div className="w-5 h-5 border-2 border-porch-teal border-t-transparent rounded-full animate-spin" />
           <span className="text-sm text-porch-brown-light/60">
-            {syncing ? "Syncing latest data..." : "Loading schedule..."}
+            Loading schedule...
           </span>
         </div>
       )}

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { getDb } from "@/lib/db";
-import { ensurePlaidTables } from "@/lib/plaid";
 import { processAllQueued } from "@/lib/process-statement";
 import { v4 as uuid } from "uuid";
 
@@ -31,7 +30,6 @@ export async function POST(request: NextRequest) {
     }
 
     const sql = getDb();
-    await ensurePlaidTables(sql);
 
     const savedStatements: { id: string; file_name: string; status: string }[] = [];
     const errors: { file_name: string; error: string }[] = [];

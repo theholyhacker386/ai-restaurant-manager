@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { useSquareSync } from "@/hooks/useSquareSync";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -200,9 +199,6 @@ export default function ExpensesPage() {
     }
   }, [selectedMonth, compareMonth]);
 
-  // Auto-sync Square data on page load if stale
-  const { syncing } = useSquareSync({ onSyncComplete: fetchData });
-
   useEffect(() => {
     fetchData();
   }, [fetchData]);
@@ -304,14 +300,6 @@ export default function ExpensesPage() {
       </div>
 
       <div className="px-4 -mt-3 space-y-4">
-        {/* Sync indicator */}
-        {syncing && (
-          <div className="bg-porch-teal/10 border border-porch-teal/20 rounded-2xl px-4 py-3 flex items-center gap-3">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-porch-teal" />
-            <p className="text-xs text-porch-teal font-medium">Syncing with Square...</p>
-          </div>
-        )}
-
         {/* Controls */}
         <div className="bg-white rounded-2xl border border-porch-cream-dark/50 p-4">
           {/* Month pills — horizontal scrollable row */}
@@ -904,9 +892,6 @@ function PLTab({ fin, compareFin, onDrillDown, onDrillDownByType }: {
 
       {/* ── SECTION 3: LABOR ── */}
       <PLSection title="Labor" icon="👥">
-        {fin.labor.from_square > 0 && (
-          <PLLineItem label="Payroll (Square)" amount={fin.labor.from_square} />
-        )}
         {fin.labor.breakdown && fin.labor.breakdown.length > 0 &&
           fin.labor.breakdown.map((b: any, i: number) => (
             <PLLineItem key={i} label={b.name} amount={b.amount} />

@@ -58,10 +58,10 @@ export default function LoginPage() {
       {/* Logo / Title */}
       <div className="text-center mb-8">
         <h1 className="text-2xl font-bold text-porch-brown">
-          The Porch Health Park
+          AI Restaurant Manager
         </h1>
         <p className="text-sm text-porch-brown-light mt-1">
-          Financial Dashboard
+          Restaurant Dashboard
         </p>
       </div>
 

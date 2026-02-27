@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { ensurePlaidTables } from "@/lib/plaid";
 
 export async function GET() {
   try {
     const sql = getDb();
-    await ensurePlaidTables(sql);
 
     // Get all completed bank statements, extract distinct months
     const rows = await sql`

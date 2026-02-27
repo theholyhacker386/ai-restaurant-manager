@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import PlaidLinkSection from "@/components/PlaidLink";
 import StatementUpload from "@/components/StatementUpload";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -287,9 +286,6 @@ function OwnerDashboard() {
           </div>
         )}
       </div>
-
-      {/* Bank Connection */}
-      <PlaidLinkSection />
 
       {/* PDF Statement Upload */}
       <StatementUpload />

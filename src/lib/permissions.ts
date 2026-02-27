@@ -1,5 +1,5 @@
 /**
- * Role-based permissions for The Porch Health Park.
+ * Role-based permissions for AI Restaurant Manager.
  *
  * Owner: Full access to everything
  * Manager: Can see dashboard, shopping lists, ingredients, recipes, orders, and their profile.
@@ -33,7 +33,6 @@ const OWNER_ONLY_PREFIXES = [
 
 // API routes that only the OWNER can call
 const OWNER_ONLY_API = [
-  "/api/plaid/",          // All Plaid (bank) routes
   "/api/expenses",        // Expense data
   "/api/financials",      // P&L and financial reports
   "/api/kpis",            // KPI data

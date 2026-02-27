@@ -1,8 +1,8 @@
 /**
- * Core financial calculations for The Porch Health Park
+ * Core financial calculations for AI Restaurant Manager
  *
  * These are the formulas that power the dashboard - they turn raw numbers
- * into the insights Jennifer needs to make decisions.
+ * into the insights restaurant owners need to make decisions.
  */
 
 export interface MenuItemCost {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSquareSync } from "@/hooks/useSquareSync";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -73,17 +72,11 @@ export default function LaborPage() {
     const { startDate, endDate } = getDateRange(datePreset);
 
     try {
-      const [analysisRes, laborRes] = await Promise.all([
-        fetch(`/api/labor/analysis?startDate=${startDate}&endDate=${endDate}`),
-        fetch(`/api/square/labor?startDate=${startDate}&endDate=${endDate}`),
-      ]);
+      const analysisRes = await fetch(`/api/labor/analysis?startDate=${startDate}&endDate=${endDate}`);
 
       if (analysisRes.ok) {
         const data = await analysisRes.json();
         setLaborData(data);
-      }
-      if (laborRes.ok) {
-        const data = await laborRes.json();
         setShifts(data.shifts || []);
       }
     } catch (err) {
@@ -91,9 +84,6 @@ export default function LaborPage() {
     }
     setLoading(false);
   }, [datePreset]);
-
-  // Auto-sync Square data on page load if stale
-  const { syncing } = useSquareSync({ onSyncComplete: fetchData });
 
   const fetchForecast = useCallback(async () => {
     setForecastLoading(true);
@@ -217,14 +207,6 @@ export default function LaborPage() {
       </div>
 
       <div className="px-4 -mt-3 space-y-4">
-        {/* Sync indicator */}
-        {syncing && (
-          <div className="bg-porch-teal/10 border border-porch-teal/20 rounded-2xl px-4 py-3 flex items-center gap-3">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-porch-teal" />
-            <p className="text-xs text-porch-teal font-medium">Syncing with Square...</p>
-          </div>
-        )}
-
         {/* Date Range (only show for non-forecast tabs) + Tabs */}
         <div className="bg-white rounded-2xl border border-porch-cream-dark/50 p-4">
           {activeTab !== "forecast" && (

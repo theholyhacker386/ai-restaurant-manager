@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Set Up Your PIN — The Porch Health Park",
+  title: "Set Up Your PIN — AI Restaurant Manager",
 };
 
 export default function SetupLayout({

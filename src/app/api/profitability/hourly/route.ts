@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { BUSINESS_HOURS } from "@/lib/square";
+// Default business hours — will be overridden by restaurant settings
+const BUSINESS_HOURS: Record<string, { open: string; close: string } | null> = {
+  "0": { open: "08:00", close: "18:00" },
+  "1": null,
+  "2": { open: "08:00", close: "18:00" },
+  "3": { open: "08:00", close: "18:00" },
+  "4": { open: "08:00", close: "18:00" },
+  "5": { open: "08:00", close: "18:00" },
+  "6": { open: "08:00", close: "18:00" },
+};
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

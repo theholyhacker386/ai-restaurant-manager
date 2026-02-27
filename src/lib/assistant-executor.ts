@@ -1189,7 +1189,7 @@ export async function executeTool(
           version: "ai-assistant-1.0",
           source: "ai_assistant",
           exportedAt: new Date().toISOString(),
-          project: "The Porch Health Park",
+          project: "AI Restaurant Manager",
           originUrl: pageUrl,
           totalComments: 1,
           comments: [

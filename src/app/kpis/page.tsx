@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSquareSync } from "@/hooks/useSquareSync";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -62,9 +61,6 @@ export default function KPIsPage() {
       });
   }, [datePreset]);
 
-  // Auto-sync Square data on page load if stale
-  const { syncing } = useSquareSync({ onSyncComplete: fetchKPIs });
-
   useEffect(() => {
     fetchKPIs();
   }, [fetchKPIs]);
@@ -73,7 +69,7 @@ export default function KPIsPage() {
     return (
       <div className="min-h-screen bg-white p-6">
         <p className="text-gray-500">
-          {syncing ? "Syncing with Square..." : "Loading KPIs..."}
+          Loading KPIs...
         </p>
       </div>
     );

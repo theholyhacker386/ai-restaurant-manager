@@ -1,5 +1,4 @@
 import { getDb } from "@/lib/db";
-import { ensurePlaidTables } from "@/lib/plaid";
 import { extractStatementTransactions } from "@/lib/openai";
 import { categorizeTransactions } from "@/lib/categorize-transactions";
 import { v4 as uuid } from "uuid";
@@ -131,7 +130,6 @@ export async function processStatement(statementId: string): Promise<void> {
  */
 export async function processAllQueued(): Promise<void> {
   const sql = getDb();
-  await ensurePlaidTables(sql);
 
   // Rescue stuck statements — anything "processing" for more than 2 minutes is stuck
   const stuck = await sql`
