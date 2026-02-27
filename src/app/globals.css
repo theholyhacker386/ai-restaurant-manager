@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #111111;
+  --porch-brown: #111111;
+  --porch-brown-light: #333333;
+  --porch-cream: #f5f5f5;
+  --porch-cream-dark: #e5e5e5;
+  --porch-teal: #0d9488;
+  --porch-teal-light: #14b8a6;
+  --porch-warm-white: #fafafa;
+  --status-good: #22c55e;
+  --status-warning: #f59e0b;
+  --status-danger: #ef4444;
+  --status-gray: #9ca3af;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-porch-brown: var(--porch-brown);
+  --color-porch-brown-light: var(--porch-brown-light);
+  --color-porch-cream: var(--porch-cream);
+  --color-porch-cream-dark: var(--porch-cream-dark);
+  --color-porch-teal: var(--porch-teal);
+  --color-porch-teal-light: var(--porch-teal-light);
+  --color-porch-warm-white: var(--porch-warm-white);
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-danger: var(--status-danger);
+  --color-status-gray: var(--status-gray);
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.25s ease-out;
+}
+
+/* ===== RECIPE CARD PRINT STYLES ===== */
+@media print {
+  /* Reset everything for print */
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide the app header, bottom nav, and screen-only content */
+  body > header,
+  nav,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Remove the max-width and padding from main wrapper */
+  main {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Show the print layout */
+  .print\:block {
+    display: block !important;
+  }
+
+  /* Card grid: 2 cards per row on letter paper */
+  .recipe-print-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 16px;
+    max-width: 100%;
+  }
+
+  /* Individual card */
+  .recipe-print-card {
+    border: 2px solid #222;
+    border-radius: 8px;
+    padding: 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    background: white;
+    overflow: hidden;
+  }
+
+  /* Card header */
+  .recipe-print-header {
+    background: #222;
+    color: white;
+    padding: 10px 14px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .recipe-print-header h2 {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.2;
+  }
+
+  .recipe-print-category {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.7;
+    white-space: nowrap;
+  }
+
+  /* Sections */
+  .recipe-print-section {
+    padding: 8px 14px 10px;
+    border-top: 1px solid #ddd;
+  }
+
+  .recipe-print-section h3 {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #666;
+    margin: 0 0 6px 0;
+  }
+
+  /* Ingredients table */
+  .recipe-print-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .recipe-print-table tr {
+    border-bottom: 1px dotted #ccc;
+  }
+
+  .recipe-print-table tr:last-child {
+    border-bottom: none;
+  }
+
+  .recipe-print-ing-name {
+    font-size: 11px;
+    font-weight: 500;
+    color: #111;
+    padding: 3px 0;
+  }
+
+  .recipe-print-ing-qty {
+    font-size: 11px;
+    font-weight: 600;
+    color: #111;
+    text-align: right;
+    padding: 3px 0;
+    white-space: nowrap;
+  }
+
+  /* Instructions */
+  .recipe-print-instructions {
+    font-size: 10px;
+    line-height: 1.5;
+    color: #333;
+    margin: 0;
+    font-style: italic;
+  }
+
+  /* Blank lines for handwriting instructions */
+  .recipe-print-blank-lines div {
+    border-bottom: 1px solid #ccc;
+    height: 18px;
+  }
+}
