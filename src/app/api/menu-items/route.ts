@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { getSettings } from "@/lib/settings";
 import { v4 as uuid } from "uuid";
 
 // GET all menu items with their cost data
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const settings = await getSettings();
 
     const items = await sql`
@@ -65,6 +65,7 @@ export async function GET() {
         mi.approved_food_cost
       FROM menu_items mi
       LEFT JOIN menu_categories mc ON mi.category_id = mc.id
+      WHERE mi.restaurant_id = ${restaurantId}
       ORDER BY mc.sort_order, mi.name
     `;
 
@@ -128,7 +129,7 @@ export async function GET() {
 // POST - create a new menu item
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     const { name, selling_price, category_id, notes } = body;
@@ -142,8 +143,8 @@ export async function POST(request: NextRequest) {
 
     const id = uuid();
 
-    await sql`INSERT INTO menu_items (id, name, selling_price, category_id, notes)
-       VALUES (${id}, ${name}, ${selling_price}, ${category_id || null}, ${notes || null})`;
+    await sql`INSERT INTO menu_items (id, name, selling_price, category_id, notes, restaurant_id)
+       VALUES (${id}, ${name}, ${selling_price}, ${category_id || null}, ${notes || null}, ${restaurantId})`;
 
     return NextResponse.json({ id, name, selling_price });
   } catch (error: any) {

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const bills = await sql`
       SELECT * FROM utility_bills
+      WHERE restaurant_id = ${restaurantId}
       ORDER BY bill_date DESC
     ` as any[];
 
@@ -54,7 +55,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
     const { utilityType, billDate, amount, usageQty, usageUnit, ratePerUnit, notes } = body;
 
@@ -64,8 +65,8 @@ export async function POST(request: NextRequest) {
 
     const id = `util-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-    await sql`INSERT INTO utility_bills (id, utility_type, bill_date, amount, usage_qty, usage_unit, rate_per_unit, notes)
-      VALUES (${id}, ${utilityType || "electric"}, ${billDate}, ${amount}, ${usageQty || null}, ${usageUnit || "kWh"}, ${ratePerUnit || null}, ${notes || null})`;
+    await sql`INSERT INTO utility_bills (id, utility_type, bill_date, amount, usage_qty, usage_unit, rate_per_unit, notes, restaurant_id)
+      VALUES (${id}, ${utilityType || "electric"}, ${billDate}, ${amount}, ${usageQty || null}, ${usageUnit || "kWh"}, ${ratePerUnit || null}, ${notes || null}, ${restaurantId})`;
 
     return NextResponse.json({ id });
   } catch (error) {
@@ -81,8 +82,8 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
   try {
-    const sql = getDb();
-    await sql`DELETE FROM utility_bills WHERE id = ${id}`;
+    const { sql, restaurantId } = await getTenantDb();
+    await sql`DELETE FROM utility_bills WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Utility bill delete error:", error);

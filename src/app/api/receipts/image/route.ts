@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 // GET - serve receipt images from database
 export async function GET(request: NextRequest) {
@@ -14,9 +14,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
-    const rows = await sql`SELECT image_data, image_mime_type FROM receipts WHERE id = ${receiptId}`;
+    const rows = await sql`SELECT image_data, image_mime_type FROM receipts WHERE id = ${receiptId} AND restaurant_id = ${restaurantId}`;
     const receipt = rows[0] as { image_data: string | null; image_mime_type: string | null } | undefined;
 
     if (!receipt || !receipt.image_data) {

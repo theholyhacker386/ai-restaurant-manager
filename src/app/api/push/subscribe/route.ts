@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
 /**
@@ -8,7 +8,7 @@ import { v4 as uuid } from "uuid";
  */
 export async function POST(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { subscription, userAgent } = await req.json();
 
     if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
@@ -17,8 +17,8 @@ export async function POST(req: Request) {
 
     // Upsert — if this endpoint already exists, just update the timestamp
     await sql`
-      INSERT INTO push_subscriptions (id, endpoint, keys_p256dh, keys_auth, user_agent)
-      VALUES (${uuid()}, ${subscription.endpoint}, ${subscription.keys.p256dh}, ${subscription.keys.auth}, ${userAgent || null})
+      INSERT INTO push_subscriptions (id, endpoint, keys_p256dh, keys_auth, user_agent, restaurant_id)
+      VALUES (${uuid()}, ${subscription.endpoint}, ${subscription.keys.p256dh}, ${subscription.keys.auth}, ${userAgent || null}, ${restaurantId})
       ON CONFLICT (endpoint) DO UPDATE SET
         keys_p256dh = EXCLUDED.keys_p256dh,
         keys_auth = EXCLUDED.keys_auth,

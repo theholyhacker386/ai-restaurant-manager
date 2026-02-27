@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function GET(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(req.url);
     const listId = searchParams.get("id");
 
@@ -13,7 +13,7 @@ export async function GET(req: Request) {
     if (listId) {
       const lists = (await sql`
         SELECT id, name, based_on_days, multiplier, total_estimated_cost, status, notes, created_at
-        FROM shopping_lists WHERE id = ${listId}
+        FROM shopping_lists WHERE id = ${listId} AND restaurant_id = ${restaurantId}
       `) as any[];
 
       if (lists.length === 0) {
@@ -47,6 +47,7 @@ export async function GET(req: Request) {
     const lists = (await sql`
       SELECT id, name, based_on_days, multiplier, total_estimated_cost, status, created_at
       FROM shopping_lists
+      WHERE restaurant_id = ${restaurantId}
       ORDER BY created_at DESC
       LIMIT 20
     `) as any[];
@@ -80,13 +81,13 @@ function parseQuantityNumber(qty: string | null | undefined): number {
 // Toggle item checked status OR update list status
 export async function PATCH(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await req.json();
 
     // Update list status (e.g. mark as "completed")
     if (body.listId && body.status) {
       await sql`
-        UPDATE shopping_lists SET status = ${body.status} WHERE id = ${body.listId}
+        UPDATE shopping_lists SET status = ${body.status} WHERE id = ${body.listId} AND restaurant_id = ${restaurantId}
       `;
       return NextResponse.json({ success: true });
     }
@@ -121,7 +122,7 @@ export async function PATCH(req: Request) {
         // 3. Find the matching ingredient
         const ingredients = (await sql`
           SELECT id, name, current_stock, package_size, unit
-          FROM ingredients WHERE LOWER(name) = LOWER(${ingredientName})
+          FROM ingredients WHERE LOWER(name) = LOWER(${ingredientName}) AND restaurant_id = ${restaurantId}
         `) as any[];
 
         if (ingredients.length > 0) {
@@ -189,7 +190,7 @@ export async function PATCH(req: Request) {
 // Delete a shopping list
 export async function DELETE(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(req.url);
     const listId = searchParams.get("id");
 
@@ -199,7 +200,7 @@ export async function DELETE(req: Request) {
 
     // Delete items first, then the list
     await sql`DELETE FROM shopping_list_items WHERE shopping_list_id = ${listId}`;
-    await sql`DELETE FROM shopping_lists WHERE id = ${listId}`;
+    await sql`DELETE FROM shopping_lists WHERE id = ${listId} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

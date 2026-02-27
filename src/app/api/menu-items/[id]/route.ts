@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 // GET a single menu item with cost data and recipe info
 export async function GET(
@@ -8,7 +8,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const items = await sql`
         SELECT
@@ -50,7 +50,7 @@ export async function GET(
           ) as food_recipe_count
         FROM menu_items mi
         LEFT JOIN menu_categories mc ON mi.category_id = mc.id
-        WHERE mi.id = ${id}
+        WHERE mi.id = ${id} AND mi.restaurant_id = ${restaurantId}
     `;
 
     const item: any = items[0];
@@ -148,7 +148,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     const { name, selling_price, category_id, notes, is_active } = body;
@@ -160,7 +160,7 @@ export async function PUT(
       );
     }
 
-    const existing = await sql`SELECT id FROM menu_items WHERE id = ${id}`;
+    const existing = await sql`SELECT id FROM menu_items WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     if (existing.length === 0) {
       return NextResponse.json(
@@ -173,7 +173,7 @@ export async function PUT(
 
     await sql`UPDATE menu_items
        SET name = ${name}, selling_price = ${selling_price}, category_id = ${category_id || null}, notes = ${notes || null}, is_active = ${activeVal}, updated_at = NOW()
-       WHERE id = ${id}`;
+       WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true, id });
   } catch (error: any) {
@@ -192,9 +192,9 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
-    const existing = await sql`SELECT id FROM menu_items WHERE id = ${id}`;
+    const existing = await sql`SELECT id FROM menu_items WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     if (existing.length === 0) {
       return NextResponse.json(
@@ -203,8 +203,8 @@ export async function DELETE(
       );
     }
 
-    await sql`DELETE FROM recipes WHERE menu_item_id = ${id}`;
-    await sql`DELETE FROM menu_items WHERE id = ${id}`;
+    await sql`DELETE FROM recipes WHERE menu_item_id = ${id} AND restaurant_id = ${restaurantId}`;
+    await sql`DELETE FROM menu_items WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

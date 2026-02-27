@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
+import { getSettings } from "@/lib/settings";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // GET — return current business settings
 export async function GET() {
   try {
-    const sql = getDb();
-    const rows = await sql`SELECT * FROM business_settings WHERE id = 'default'`;
+    const { sql, restaurantId } = await getTenantDb();
+    const rows = await sql`SELECT * FROM business_settings WHERE restaurant_id = ${restaurantId}`;
 
     if (rows.length === 0) {
-      return NextResponse.json({ settings: null });
+      // Fall back to defaults via getSettings (which also checks restaurant_id)
+      const defaults = await getSettings(restaurantId);
+      return NextResponse.json({ settings: defaults });
     }
 
     const row = rows[0];
@@ -37,7 +40,7 @@ export async function GET() {
 // PUT — update business settings
 export async function PUT(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     await sql`
@@ -51,7 +54,7 @@ export async function PUT(request: NextRequest) {
         employer_burden_rate = ${body.employer_burden_rate},
         business_hours = ${JSON.stringify(body.business_hours)},
         updated_at = NOW()
-      WHERE id = 'default'
+      WHERE restaurant_id = ${restaurantId}
     `;
 
     return NextResponse.json({ success: true });

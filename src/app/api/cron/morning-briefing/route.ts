@@ -68,11 +68,12 @@ async function runNightlyScan() {
     const weekAgoStr = daysAgo(7);
     const monthStartStr = monthStart();
 
-    // Ensure briefings table exists
+    // Ensure briefings table exists (with restaurant_id column)
     await sql`
       CREATE TABLE IF NOT EXISTS morning_briefings (
         id TEXT PRIMARY KEY,
         scan_date TEXT NOT NULL,
+        restaurant_id TEXT,
         briefing_data JSONB NOT NULL,
         summary TEXT,
         todo_items JSONB,
@@ -81,40 +82,56 @@ async function runNightlyScan() {
       )
     `;
 
+    // Get all active restaurants and process each one
+    const restaurants = await sql`SELECT id FROM restaurants WHERE status = 'active'`;
+
+    if (restaurants.length === 0) {
+      console.log("[morning-briefing] No active restaurants found");
+      return NextResponse.json({ success: true, message: "No active restaurants" });
+    }
+
+    const results: Array<{ restaurantId: string; briefing_id: string; alerts_count: number; todos_count: number }> = [];
+    let totalPushSent = 0;
+
+    for (const restaurant of restaurants) {
+      const restaurantId = restaurant.id;
+      console.log(`[morning-briefing] Processing restaurant ${restaurantId}...`);
+
     // ── 1. YESTERDAY'S SALES ──
     const [yesterdaySales] = (await sql`
       SELECT COALESCE(SUM(net_revenue), 0) as revenue, COALESCE(SUM(order_count), 0) as orders
-      FROM daily_sales WHERE date = ${yesterdayStr}
+      FROM daily_sales WHERE date = ${yesterdayStr} AND restaurant_id = ${restaurantId}
     `) as Array<{ revenue: number; orders: number }>;
 
     // ── 2. THIS WEEK'S SALES (for trend) ──
     const [weekSales] = (await sql`
       SELECT COALESCE(SUM(net_revenue), 0) as revenue, COALESCE(SUM(order_count), 0) as orders,
         COUNT(DISTINCT date) as days_with_sales
-      FROM daily_sales WHERE date >= ${weekAgoStr} AND date <= ${todayStr}
+      FROM daily_sales WHERE date >= ${weekAgoStr} AND date <= ${todayStr} AND restaurant_id = ${restaurantId}
     `) as Array<{ revenue: number; orders: number; days_with_sales: number }>;
 
     // ── 3. THIS MONTH'S TOTALS ──
     const [monthSales] = (await sql`
       SELECT COALESCE(SUM(net_revenue), 0) as revenue, COALESCE(SUM(order_count), 0) as orders
-      FROM daily_sales WHERE date >= ${monthStartStr} AND date <= ${todayStr}
+      FROM daily_sales WHERE date >= ${monthStartStr} AND date <= ${todayStr} AND restaurant_id = ${restaurantId}
     `) as Array<{ revenue: number; orders: number }>;
 
     // ── 4. LABOR ANALYSIS (yesterday + this week) ──
     const [yesterdayLabor] = (await sql`
       SELECT COALESCE(SUM(total_pay), 0) as labor_cost, COALESCE(SUM(hours_worked), 0) as hours
-      FROM labor_shifts WHERE date = ${yesterdayStr}
+      FROM labor_shifts WHERE date = ${yesterdayStr} AND restaurant_id = ${restaurantId}
     `) as Array<{ labor_cost: number; hours: number }>;
 
     const [weekLabor] = (await sql`
       SELECT COALESCE(SUM(total_pay), 0) as labor_cost, COALESCE(SUM(hours_worked), 0) as hours
-      FROM labor_shifts WHERE date >= ${weekAgoStr} AND date <= ${todayStr}
+      FROM labor_shifts WHERE date >= ${weekAgoStr} AND date <= ${todayStr} AND restaurant_id = ${restaurantId}
     `) as Array<{ labor_cost: number; hours: number }>;
 
     // ── 5. EXPENSES THIS MONTH ──
     const [monthExpenses] = (await sql`
       SELECT COALESCE(SUM(amount), 0) as total FROM plaid_transactions
       WHERE source = 'statement' AND amount > 0 AND date >= ${monthStartStr} AND date <= ${todayStr}
+        AND restaurant_id = ${restaurantId}
     `) as Array<{ total: number }>;
 
     // ── 6. TOP EXPENSE CATEGORIES THIS MONTH ──
@@ -123,6 +140,7 @@ async function runNightlyScan() {
       FROM plaid_transactions
       WHERE source = 'statement' AND amount > 0 AND suggested_category_id IS NOT NULL
         AND date >= ${monthStartStr} AND date <= ${todayStr}
+        AND restaurant_id = ${restaurantId}
       GROUP BY suggested_category_id ORDER BY total DESC LIMIT 5
     `) as Array<{ cat_id: string; cnt: number; total: number }>;
 
@@ -130,23 +148,27 @@ async function runNightlyScan() {
     const [uncategorized] = (await sql`
       SELECT COUNT(*) as cnt FROM plaid_transactions
       WHERE review_status = 'pending' AND amount > 0 AND pending = false
+        AND restaurant_id = ${restaurantId}
     `) as Array<{ cnt: number }>;
 
     const [needsReview] = (await sql`
       SELECT COUNT(*) as cnt FROM plaid_transactions WHERE review_status = 'needs_review'
+        AND restaurant_id = ${restaurantId}
     `) as Array<{ cnt: number }>;
 
     // ── 8. TOP SELLERS THIS WEEK ──
     const topSellers = (await sql`
       SELECT square_item_name as name, SUM(quantity_sold) as qty, SUM(total_revenue) as revenue
       FROM item_sales WHERE date >= ${weekAgoStr} AND date <= ${todayStr}
+        AND restaurant_id = ${restaurantId}
       GROUP BY square_item_name ORDER BY revenue DESC LIMIT 5
     `) as Array<{ name: string; qty: number; revenue: number }>;
 
     // ── 9. MENU ITEMS WITHOUT RECIPES ──
     const [noRecipe] = (await sql`
       SELECT COUNT(*) as cnt FROM menu_items mi
-      WHERE mi.is_active = true AND NOT EXISTS (SELECT 1 FROM recipes r WHERE r.menu_item_id = mi.id)
+      WHERE mi.is_active = true AND mi.restaurant_id = ${restaurantId}
+        AND NOT EXISTS (SELECT 1 FROM recipes r WHERE r.menu_item_id = mi.id)
     `) as Array<{ cnt: number }>;
 
     // ── 10. INGREDIENT BURN RATE (what's running low based on sales pace) ──
@@ -158,6 +180,7 @@ async function runNightlyScan() {
       JOIN recipes r ON r.menu_item_id = isales.menu_item_id
       JOIN ingredients i ON i.id = r.ingredient_id
       WHERE isales.date >= ${weekAgoStr} AND isales.date <= ${todayStr}
+        AND isales.restaurant_id = ${restaurantId}
       GROUP BY i.id, i.name, i.supplier, i.unit, i.current_stock, i.par_level
       ORDER BY weekly_usage DESC
     `) as Array<{
@@ -303,6 +326,7 @@ async function runNightlyScan() {
     // ── FULL BRIEFING DATA ──
     const briefingData = {
       scan_date: todayStr,
+      restaurant_id: restaurantId,
       yesterday: {
         revenue: yRevenue,
         orders: yOrders,
@@ -339,10 +363,11 @@ async function runNightlyScan() {
     // ── SAVE TO DATABASE ──
     const briefingId = uuid();
     await sql`
-      INSERT INTO morning_briefings (id, scan_date, briefing_data, summary, todo_items, alerts)
+      INSERT INTO morning_briefings (id, scan_date, restaurant_id, briefing_data, summary, todo_items, alerts)
       VALUES (
         ${briefingId},
         ${todayStr},
+        ${restaurantId},
         ${JSON.stringify(briefingData)},
         ${summary},
         ${JSON.stringify(todos)},
@@ -356,7 +381,7 @@ async function runNightlyScan() {
         created_at = NOW()
     `;
 
-    console.log(`[morning-briefing] Scan complete: ${alerts.length} alerts, ${todos.length} todos`);
+    console.log(`[morning-briefing] Restaurant ${restaurantId}: ${alerts.length} alerts, ${todos.length} todos`);
 
     // ── SEND PUSH NOTIFICATIONS ──
     let pushSent = 0;
@@ -369,6 +394,7 @@ async function runNightlyScan() {
 
         const subscriptions = (await sql`
           SELECT id, endpoint, keys_p256dh, keys_auth FROM push_subscriptions
+          WHERE restaurant_id = ${restaurantId}
         `) as Array<{ id: string; endpoint: string; keys_p256dh: string; keys_auth: string }>;
 
         // Build notification message
@@ -398,22 +424,29 @@ async function runNightlyScan() {
             }
           }
         }
-        console.log(`[morning-briefing] Push sent to ${pushSent}/${subscriptions.length} devices`);
+        console.log(`[morning-briefing] Restaurant ${restaurantId}: push sent to ${pushSent}/${subscriptions.length} devices`);
       }
     } catch (pushErr) {
-      console.error("[morning-briefing] Push notification error:", pushErr);
+      console.error(`[morning-briefing] Restaurant ${restaurantId}: push notification error:`, pushErr);
     }
+
+    results.push({
+      restaurantId,
+      briefing_id: briefingId,
+      alerts_count: alerts.length,
+      todos_count: todos.length,
+    });
+    totalPushSent += pushSent;
+
+    } // end for-each restaurant
+
+    console.log(`[morning-briefing] All done: ${results.length} restaurant(s) processed, ${totalPushSent} push notifications sent`);
 
     return NextResponse.json({
       success: true,
-      briefing_id: briefingId,
-      scan_date: todayStr,
-      summary,
-      alerts_count: alerts.length,
-      todos_count: todos.length,
-      push_sent: pushSent,
-      alerts,
-      todos,
+      restaurants_processed: results.length,
+      push_sent: totalPushSent,
+      results,
     });
   } catch (error: any) {
     console.error("[morning-briefing] Error:", error);

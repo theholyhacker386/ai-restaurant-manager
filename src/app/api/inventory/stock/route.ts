@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // GET — return all ingredients with stock info
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const ingredients = await sql`
       SELECT
@@ -15,7 +15,7 @@ export async function GET() {
         current_stock, par_level, reorder_point,
         stock_counted_at, cost_per_unit
       FROM ingredients
-      WHERE ingredient_type != 'sub_recipe'
+      WHERE ingredient_type != 'sub_recipe' AND restaurant_id = ${restaurantId}
       ORDER BY
         CASE ingredient_type WHEN 'food' THEN 0 ELSE 1 END,
         name
@@ -34,7 +34,7 @@ export async function GET() {
 // PATCH — update stock count (and optionally par_level / reorder_point)
 export async function PATCH(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     const { updates } = body as {
@@ -69,7 +69,7 @@ export async function PATCH(request: NextRequest) {
               reorder_point = ${u.reorder_point},
               stock_counted_at = NOW(),
               updated_at = NOW()
-          WHERE id = ${u.id}
+          WHERE id = ${u.id} AND restaurant_id = ${restaurantId}
         `;
       } else if (u.par_level !== undefined) {
         await sql`
@@ -78,7 +78,7 @@ export async function PATCH(request: NextRequest) {
               par_level = ${u.par_level},
               stock_counted_at = NOW(),
               updated_at = NOW()
-          WHERE id = ${u.id}
+          WHERE id = ${u.id} AND restaurant_id = ${restaurantId}
         `;
       } else if (u.reorder_point !== undefined) {
         await sql`
@@ -87,7 +87,7 @@ export async function PATCH(request: NextRequest) {
               reorder_point = ${u.reorder_point},
               stock_counted_at = NOW(),
               updated_at = NOW()
-          WHERE id = ${u.id}
+          WHERE id = ${u.id} AND restaurant_id = ${restaurantId}
         `;
       } else {
         await sql`
@@ -95,7 +95,7 @@ export async function PATCH(request: NextRequest) {
           SET current_stock = ${u.current_stock},
               stock_counted_at = NOW(),
               updated_at = NOW()
-          WHERE id = ${u.id}
+          WHERE id = ${u.id} AND restaurant_id = ${restaurantId}
         `;
       }
 

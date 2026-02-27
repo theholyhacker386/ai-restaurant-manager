@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 // Default business hours — will be overridden by restaurant settings
 const BUSINESS_HOURS: Record<string, { open: string; close: string } | null> = {
   "0": { open: "08:00", close: "18:00" },
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     // ─── 1. Hourly sales revenue ───
     const hourlySales = await sql`
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
         COUNT(DISTINCT date) as days_with_sales
       FROM hourly_sales
       WHERE date >= ${startDate} AND date <= ${endDate}
+        AND restaurant_id = ${restaurantId}
       GROUP BY hour
       ORDER BY hour
     ` as any[];
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
       FROM labor_shifts
       WHERE date >= ${startDate} AND date <= ${endDate}
         AND start_at IS NOT NULL
+        AND restaurant_id = ${restaurantId}
     ` as any[];
 
     // For "today" mode, also get employees currently clocked in (no end_at)
@@ -81,6 +83,7 @@ export async function GET(request: NextRequest) {
           team_member_name, team_member_id, shift_type
         FROM labor_shifts
         WHERE date = ${todayStr} AND end_at IS NULL AND start_at IS NOT NULL
+          AND restaurant_id = ${restaurantId}
       ` as any[];
     }
 
@@ -99,6 +102,7 @@ export async function GET(request: NextRequest) {
       FROM labor_shifts
       WHERE date >= ${startDate} AND date <= ${endDate}
         AND start_at IS NOT NULL
+        AND restaurant_id = ${restaurantId}
     ` as any[];
     const openDays = Math.max(1, Number(openDaysResult[0]?.open_days || 1));
 
@@ -141,6 +145,7 @@ export async function GET(request: NextRequest) {
       WHERE ec.type IN ('occupancy', 'utilities', 'overhead', 'admin', 'technology', 'regulatory')
         AND ec.id NOT IN ('cat-sales-tax', 'cat-federal-tax')
         AND e.date >= ${threeMonthStr}
+        AND e.restaurant_id = ${restaurantId}
       GROUP BY ec.name, ec.type
       ORDER BY total DESC
     ` as any[];
@@ -269,6 +274,7 @@ export async function GET(request: NextRequest) {
       SELECT hour, date, net_revenue
       FROM hourly_sales
       WHERE date >= ${tenWeeksStr}
+        AND restaurant_id = ${restaurantId}
       ORDER BY hour, date
     ` as any[];
 
@@ -311,11 +317,13 @@ export async function GET(request: NextRequest) {
       FROM expenses e
       JOIN expense_categories ec ON e.category_id = ec.id
       WHERE ec.type = 'labor' AND e.date >= ${threeMonthStr}
+        AND e.restaurant_id = ${restaurantId}
     ` as any[];
     const squareLaborResult = await sql`
       SELECT COALESCE(SUM(total_labor_cost), 0) as total_labor
       FROM daily_labor
       WHERE date >= ${threeMonthStr}
+        AND restaurant_id = ${restaurantId}
     ` as any[];
     const bankLabor = Number(bankLaborResult[0]?.total_labor || 0);
     const squareLabor = Number(squareLaborResult[0]?.total_labor || 0);

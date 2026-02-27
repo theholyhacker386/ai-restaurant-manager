@@ -23,6 +23,10 @@ export default auth((req) => {
   const isOnboardingPage = pathname === "/onboarding" || pathname.startsWith("/onboarding/");
   const isOnboardingAPI = pathname.startsWith("/api/onboarding/");
 
+  // Admin pages and APIs
+  const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
+  const isAdminAPI = pathname.startsWith("/api/admin/");
+
   // Allow onboarding with a token (no login needed — the user was invited via link)
   const hasOnboardingToken = req.nextUrl.searchParams.has("token");
   if (!req.auth && (isOnboardingPage || isOnboardingAPI) && hasOnboardingToken) {
@@ -43,6 +47,13 @@ export default auth((req) => {
 
   // If the user IS logged in and goes to a public page, send them to the dashboard
   if (req.auth && isPublicPage) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = req.auth.user as any;
+    // Platform admins go to admin dashboard
+    if (user?.isPlatformAdmin) {
+      const adminUrl = new URL("/admin", req.nextUrl.origin);
+      return NextResponse.redirect(adminUrl);
+    }
     const homeUrl = new URL("/", req.nextUrl.origin);
     return NextResponse.redirect(homeUrl);
   }
@@ -52,10 +63,35 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
+  // Admin route protection — only platform admins can access /admin
+  if (req.auth && (isAdminPage || isAdminAPI)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = req.auth.user as any;
+    if (!user?.isPlatformAdmin) {
+      if (isAdminAPI) {
+        return NextResponse.json({ error: "Platform admin access required" }, { status: 403 });
+      }
+      const homeUrl = new URL("/", req.nextUrl.origin);
+      return NextResponse.redirect(homeUrl);
+    }
+    return NextResponse.next();
+  }
+
   // Onboarding guard — owners who haven't finished onboarding get redirected
   if (req.auth && !isOnboardingPage && !isOnboardingAPI) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = req.auth.user as any;
+
+    // Platform admins skip onboarding guard — they go to /admin
+    if (user?.isPlatformAdmin) {
+      // If a platform admin navigates to / (home), send them to admin
+      if (pathname === "/") {
+        const adminUrl = new URL("/admin", req.nextUrl.origin);
+        return NextResponse.redirect(adminUrl);
+      }
+      return NextResponse.next();
+    }
+
     const isOwner = user?.role === "owner";
     const onboardingDone = user?.onboardingCompleted === true;
 

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     // Get all completed bank statements, extract distinct months
     const rows = await sql`
@@ -15,6 +15,7 @@ export async function GET() {
       FROM bank_statements
       WHERE status = 'completed'
         AND period_start IS NOT NULL
+        AND restaurant_id = ${restaurantId}
       ORDER BY month_key DESC
     `;
 

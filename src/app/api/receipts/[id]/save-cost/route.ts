@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
 // POST - save a receipt as a food cost expense without matching to ingredients
@@ -9,10 +9,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
 
-    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id}`;
+    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     const receipt = receiptRows[0] as Record<string, unknown> | undefined;
 
     if (!receipt) {
@@ -26,7 +26,7 @@ export async function POST(
     await sql`UPDATE receipt_items SET match_status = 'one_off', is_one_off = true WHERE receipt_id = ${id}`;
 
     // Mark the receipt as confirmed
-    await sql`UPDATE receipts SET status = 'confirmed' WHERE id = ${id}`;
+    await sql`UPDATE receipts SET status = 'confirmed' WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     // Create a COGS expense for the receipt total
     const supplier = (receipt.supplier as string) || "Unknown Store";
@@ -35,14 +35,14 @@ export async function POST(
 
     if (total > 0) {
       // Find a COGS category
-      const catRows = await sql`SELECT id FROM expense_categories WHERE type = 'cogs' ORDER BY CASE WHEN name ILIKE '%ingredient%' OR name ILIKE '%food%' THEN 0 ELSE 1 END LIMIT 1`;
+      const catRows = await sql`SELECT id FROM expense_categories WHERE type = 'cogs' AND restaurant_id = ${restaurantId} ORDER BY CASE WHEN name ILIKE '%ingredient%' OR name ILIKE '%food%' THEN 0 ELSE 1 END LIMIT 1`;
       const categoryId = catRows[0]?.id || null;
 
       // Only create if we haven't already (idempotent)
-      const existing = await sql`SELECT id FROM expenses WHERE source = 'receipt' AND source_transaction_id = ${id} LIMIT 1`;
+      const existing = await sql`SELECT id FROM expenses WHERE source = 'receipt' AND source_transaction_id = ${id} AND restaurant_id = ${restaurantId} LIMIT 1`;
       if (existing.length === 0) {
-        await sql`INSERT INTO expenses (id, category_id, description, amount, date, is_recurring, source, source_transaction_id, notes)
-          VALUES (${uuid()}, ${categoryId}, ${`One-off purchase: ${supplier}`}, ${total}, ${receiptDate}, ${false}, 'receipt', ${id}, ${`One-off food purchase — not a regular supplier`})`;
+        await sql`INSERT INTO expenses (id, category_id, description, amount, date, is_recurring, source, source_transaction_id, notes, restaurant_id)
+          VALUES (${uuid()}, ${categoryId}, ${`One-off purchase: ${supplier}`}, ${total}, ${receiptDate}, ${false}, 'receipt', ${id}, ${`One-off food purchase — not a regular supplier`}, ${restaurantId})`;
       }
     }
 

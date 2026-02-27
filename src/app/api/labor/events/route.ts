@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const events = await sql`
       SELECT * FROM forecast_events
       WHERE date >= (CURRENT_DATE - INTERVAL '7 days')::TEXT
+        AND restaurant_id = ${restaurantId}
       ORDER BY date
     `;
 
@@ -20,7 +21,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
     const { date, name, adjustmentPct, notes } = body;
 
@@ -31,8 +32,8 @@ export async function POST(request: NextRequest) {
     const id = `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const adj = typeof adjustmentPct === "number" ? adjustmentPct : 30;
 
-    await sql`INSERT INTO forecast_events (id, date, name, adjustment_pct, notes)
-      VALUES (${id}, ${date}, ${name}, ${adj}, ${notes || null})`;
+    await sql`INSERT INTO forecast_events (id, restaurant_id, date, name, adjustment_pct, notes)
+      VALUES (${id}, ${restaurantId}, ${date}, ${name}, ${adj}, ${notes || null})`;
 
     return NextResponse.json({ id, date, name, adjustmentPct: adj, notes });
   } catch (error) {
@@ -50,8 +51,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const sql = getDb();
-    await sql`DELETE FROM forecast_events WHERE id = ${id}`;
+    const { sql, restaurantId } = await getTenantDb();
+    await sql`DELETE FROM forecast_events WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Event delete error:", error);

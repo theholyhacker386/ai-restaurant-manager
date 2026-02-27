@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
 // GET all ingredients
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const ingredients = await sql`SELECT i.*,
                 (SELECT COUNT(*) FROM recipes r WHERE r.ingredient_id = i.id) as recipe_count
          FROM ingredients i
+         WHERE i.restaurant_id = ${restaurantId}
          ORDER BY i.name`;
 
     return NextResponse.json({ ingredients });
@@ -25,7 +26,7 @@ export async function GET() {
 // POST - create a new ingredient
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     const {
@@ -52,8 +53,8 @@ export async function POST(request: NextRequest) {
 
     const id = uuid();
 
-    await sql`INSERT INTO ingredients (id, name, unit, cost_per_unit, package_size, package_unit, package_price, supplier, notes)
-       VALUES (${id}, ${name}, ${unit}, ${cost_per_unit}, ${package_size || null}, ${package_unit || null}, ${package_price || null}, ${supplier || "Walmart"}, ${notes || null})`;
+    await sql`INSERT INTO ingredients (id, restaurant_id, name, unit, cost_per_unit, package_size, package_unit, package_price, supplier, notes)
+       VALUES (${id}, ${restaurantId}, ${name}, ${unit}, ${cost_per_unit}, ${package_size || null}, ${package_unit || null}, ${package_price || null}, ${supplier || "Walmart"}, ${notes || null})`;
 
     return NextResponse.json({
       id,

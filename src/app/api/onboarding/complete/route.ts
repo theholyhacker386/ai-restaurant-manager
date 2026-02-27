@@ -10,16 +10,20 @@ import bcrypt from "bcryptjs";
  *  1) Auth session (logged-in user), or
  *  2) A setup token (from URL param or request body)
  *
- * Returns { id, name } or null if neither works.
+ * Returns { id, name, restaurantId } or null if neither works.
  */
 async function resolveUser(
   request: Request,
   bodyToken?: string
-): Promise<{ id: string; name: string } | null> {
+): Promise<{ id: string; name: string; restaurantId: string | null } | null> {
   // Try auth session first
   const session = await auth();
   if (session?.user?.id) {
-    return { id: session.user.id, name: session.user.name || "" };
+    return {
+      id: session.user.id,
+      name: session.user.name || "",
+      restaurantId: (session.user as any).restaurantId || null,
+    };
   }
 
   // Try token
@@ -28,11 +32,13 @@ async function resolveUser(
 
   const sql = getDb();
   const rows = await sql`
-    SELECT id, name FROM users
+    SELECT id, name, restaurant_id FROM users
     WHERE setup_token = ${token}
       AND setup_token_expires > NOW()
   `;
-  return rows.length > 0 ? { id: rows[0].id, name: rows[0].name || "" } : null;
+  return rows.length > 0
+    ? { id: rows[0].id, name: rows[0].name || "", restaurantId: rows[0].restaurant_id || null }
+    : null;
 }
 
 /**
@@ -119,6 +125,7 @@ export async function PUT(request: Request) {
     }
 
     const sql = getDb();
+    const restaurantId = user.restaurantId || null;
 
     // Build storable meta (suppliers, targets, tenure, etc.)
     const meta = {
@@ -132,7 +139,7 @@ export async function PUT(request: Request) {
       INSERT INTO onboarding_sessions (
         id, business_name, business_type, customer_name,
         menu_items, ingredients, completed_sections,
-        conversation_history, progress, is_complete
+        conversation_history, progress, is_complete, restaurant_id
       ) VALUES (
         ${user.id},
         ${sessionData?.businessInfo?.name || null},
@@ -143,7 +150,8 @@ export async function PUT(request: Request) {
         ${JSON.stringify(meta)},
         ${JSON.stringify(conversationHistory || [])},
         ${progress || 0},
-        false
+        false,
+        ${restaurantId}
       )
       ON CONFLICT (id) DO UPDATE SET
         business_name = COALESCE(${sessionData?.businessInfo?.name || null}, onboarding_sessions.business_name),
@@ -153,6 +161,7 @@ export async function PUT(request: Request) {
         completed_sections = ${JSON.stringify(meta)},
         conversation_history = ${JSON.stringify(conversationHistory || [])},
         progress = ${progress || 0},
+        restaurant_id = COALESCE(${restaurantId}, onboarding_sessions.restaurant_id),
         updated_at = NOW()
     `;
 
@@ -186,18 +195,25 @@ export async function POST(request: Request) {
     }
 
     const sql = getDb();
+    const restaurantId = user.restaurantId || null;
 
     // Update the onboarding_sessions record
     await sql`
-      INSERT INTO onboarding_sessions (id, business_name, business_type, customer_name, is_complete)
-      VALUES (${user.id}, ${restaurantName || null}, ${restaurantType || null}, ${ownerName || null}, true)
+      INSERT INTO onboarding_sessions (id, business_name, business_type, customer_name, is_complete, restaurant_id)
+      VALUES (${user.id}, ${restaurantName || null}, ${restaurantType || null}, ${ownerName || null}, true, ${restaurantId})
       ON CONFLICT (id) DO UPDATE SET
         business_name = COALESCE(${restaurantName || null}, onboarding_sessions.business_name),
         business_type = COALESCE(${restaurantType || null}, onboarding_sessions.business_type),
         customer_name = COALESCE(${ownerName || null}, onboarding_sessions.customer_name),
         is_complete = true,
+        restaurant_id = COALESCE(${restaurantId}, onboarding_sessions.restaurant_id),
         updated_at = NOW()
     `;
+
+    // Also update the restaurant name if we have one
+    if (restaurantId && restaurantName) {
+      await sql`UPDATE restaurants SET name = ${restaurantName}, type = ${restaurantType || null}, updated_at = NOW() WHERE id = ${restaurantId}`;
+    }
 
     // Mark onboarding complete and clear the setup token
     await sql`

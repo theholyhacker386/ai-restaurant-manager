@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // GET all menu items with their recipes for recipe cards
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const items = await sql`SELECT
           mi.id,
@@ -15,6 +15,7 @@ export async function GET() {
           mc.name as category_name
         FROM menu_items mi
         LEFT JOIN menu_categories mc ON mi.category_id = mc.id
+        WHERE mi.restaurant_id = ${restaurantId}
         ORDER BY mc.sort_order, mi.name`;
 
     const cards = [];
@@ -51,6 +52,7 @@ export async function GET() {
     // Also fetch sub-recipes (house made items) as their own category
     const subRecipes = await sql`SELECT id, name, recipe_instructions
       FROM ingredients WHERE ingredient_type = 'sub_recipe'
+        AND restaurant_id = ${restaurantId}
       ORDER BY name` as any[];
 
     for (const sr of subRecipes) {
@@ -91,7 +93,7 @@ export async function GET() {
 // PATCH - update recipe instructions for a menu item or sub-recipe
 export async function PATCH(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
     const { id, recipe_instructions } = body;
 
@@ -103,12 +105,12 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Check if this is a sub-recipe (ingredient) or a menu item
-    const isIngredient = await sql`SELECT id FROM ingredients WHERE id = ${id} AND ingredient_type = 'sub_recipe'` as any[];
+    const isIngredient = await sql`SELECT id FROM ingredients WHERE id = ${id} AND ingredient_type = 'sub_recipe' AND restaurant_id = ${restaurantId}` as any[];
 
     if (isIngredient.length > 0) {
-      await sql`UPDATE ingredients SET recipe_instructions = ${recipe_instructions || null}, updated_at = NOW() WHERE id = ${id}`;
+      await sql`UPDATE ingredients SET recipe_instructions = ${recipe_instructions || null}, updated_at = NOW() WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     } else {
-      await sql`UPDATE menu_items SET recipe_instructions = ${recipe_instructions || null}, updated_at = NOW() WHERE id = ${id}`;
+      await sql`UPDATE menu_items SET recipe_instructions = ${recipe_instructions || null}, updated_at = NOW() WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     }
 
     return NextResponse.json({ success: true });

@@ -40,7 +40,8 @@ function fuzzyFind<T extends { name: string; id: string }>(
 export async function executeTool(
   toolName: string,
   args: Record<string, unknown>,
-  screenshot?: string | null
+  screenshot?: string | null,
+  restaurantId?: string
 ): Promise<{ success: boolean; data?: unknown; error?: string; actionCard?: ActionCard }> {
   try {
     const sql = getDb();
@@ -55,18 +56,18 @@ export async function executeTool(
 
         let category_id: string | null = null;
         if (categoryName) {
-          const cats = await sql`SELECT id, name FROM menu_categories`;
+          const cats = await sql`SELECT id, name FROM menu_categories WHERE restaurant_id = ${restaurantId}`;
           const match = fuzzyFind(cats as Array<{ id: string; name: string }>, categoryName);
           if (match) {
             category_id = match.id;
           } else {
             category_id = uuid();
-            await sql`INSERT INTO menu_categories (id, name) VALUES (${category_id}, ${categoryName})`;
+            await sql`INSERT INTO menu_categories (id, name, restaurant_id) VALUES (${category_id}, ${categoryName}, ${restaurantId})`;
           }
         }
 
         const id = uuid();
-        await sql`INSERT INTO menu_items (id, name, selling_price, category_id, notes) VALUES (${id}, ${name}, ${selling_price}, ${category_id}, ${notes || null})`;
+        await sql`INSERT INTO menu_items (id, name, selling_price, category_id, notes, restaurant_id) VALUES (${id}, ${name}, ${selling_price}, ${category_id}, ${notes || null}, ${restaurantId})`;
 
         return {
           success: true,
@@ -92,7 +93,7 @@ export async function executeTool(
             WHERE r.menu_item_id = mi.id), 0) as food_cost
           FROM menu_items mi
           LEFT JOIN menu_categories mc ON mi.category_id = mc.id
-          WHERE mi.is_active = true
+          WHERE mi.is_active = true AND mi.restaurant_id = ${restaurantId}
           ORDER BY mc.sort_order, mi.name`;
 
         const summary = (items as Array<{ name: string; selling_price: number; food_cost: number; category_name: string | null }>).map((i) => ({
@@ -108,7 +109,7 @@ export async function executeTool(
 
       case "get_menu_item_details": {
         const searchName = args.name as string;
-        const allItems = await sql`SELECT id, name, selling_price FROM menu_items` as Array<{ id: string; name: string; selling_price: number }>;
+        const allItems = await sql`SELECT id, name, selling_price FROM menu_items WHERE restaurant_id = ${restaurantId}` as Array<{ id: string; name: string; selling_price: number }>;
         const item = fuzzyFind(allItems, searchName);
 
         if (!item) {
@@ -153,7 +154,7 @@ export async function executeTool(
         const newName = args.new_name as string | undefined;
         const newPrice = args.new_price as number | undefined;
 
-        const allItems = await sql`SELECT id, name, selling_price FROM menu_items` as Array<{ id: string; name: string; selling_price: number }>;
+        const allItems = await sql`SELECT id, name, selling_price FROM menu_items WHERE restaurant_id = ${restaurantId}` as Array<{ id: string; name: string; selling_price: number }>;
         const item = fuzzyFind(allItems, searchName);
 
         if (!item) {
@@ -161,10 +162,10 @@ export async function executeTool(
         }
 
         if (newName) {
-          await sql`UPDATE menu_items SET name = ${newName}, updated_at = NOW() WHERE id = ${item.id}`;
+          await sql`UPDATE menu_items SET name = ${newName}, updated_at = NOW() WHERE id = ${item.id} AND restaurant_id = ${restaurantId}`;
         }
         if (newPrice !== undefined) {
-          await sql`UPDATE menu_items SET selling_price = ${newPrice}, updated_at = NOW() WHERE id = ${item.id}`;
+          await sql`UPDATE menu_items SET selling_price = ${newPrice}, updated_at = NOW() WHERE id = ${item.id} AND restaurant_id = ${restaurantId}`;
         }
 
         const changes: string[] = [];
@@ -198,7 +199,7 @@ export async function executeTool(
         }
 
         const id = uuid();
-        await sql`INSERT INTO ingredients (id, name, unit, cost_per_unit, package_size, package_unit, package_price, supplier) VALUES (${id}, ${name}, ${unit}, ${costPerUnit}, ${packageSize || null}, ${packageUnit || unit}, ${packagePrice || null}, ${supplier})`;
+        await sql`INSERT INTO ingredients (id, name, unit, cost_per_unit, package_size, package_unit, package_price, supplier, restaurant_id) VALUES (${id}, ${name}, ${unit}, ${costPerUnit}, ${packageSize || null}, ${packageUnit || unit}, ${packagePrice || null}, ${supplier}, ${restaurantId})`;
 
         return {
           success: true,
@@ -217,7 +218,7 @@ export async function executeTool(
         const results = await sql`
           SELECT id, name, unit, cost_per_unit, supplier
           FROM ingredients
-          WHERE LOWER(name) LIKE ${"%" + query + "%"}
+          WHERE LOWER(name) LIKE ${"%" + query + "%"} AND restaurant_id = ${restaurantId}
           ORDER BY name LIMIT 20` as Array<{ id: string; name: string; unit: string; cost_per_unit: number; supplier: string }>;
 
         return {
@@ -240,20 +241,20 @@ export async function executeTool(
         const quantity = args.quantity as number;
         const quantityUnit = args.quantity_unit as string;
 
-        const allItems = await sql`SELECT id, name FROM menu_items` as Array<{ id: string; name: string }>;
+        const allItems = await sql`SELECT id, name FROM menu_items WHERE restaurant_id = ${restaurantId}` as Array<{ id: string; name: string }>;
         const menuItem = fuzzyFind(allItems, menuItemName);
         if (!menuItem) {
           return { success: false, error: `Couldn't find menu item "${menuItemName}". Use list_menu_items to see available items.` };
         }
 
-        const allIngredients = await sql`SELECT id, name FROM ingredients` as Array<{ id: string; name: string }>;
+        const allIngredients = await sql`SELECT id, name FROM ingredients WHERE restaurant_id = ${restaurantId}` as Array<{ id: string; name: string }>;
         const ingredient = fuzzyFind(allIngredients, ingredientName);
         if (!ingredient) {
           return { success: false, error: `Couldn't find ingredient "${ingredientName}". You may need to add it first with add_ingredient.` };
         }
 
         const id = uuid();
-        await sql`INSERT INTO recipes (id, menu_item_id, ingredient_id, quantity, quantity_unit) VALUES (${id}, ${menuItem.id}, ${ingredient.id}, ${quantity}, ${quantityUnit})`;
+        await sql`INSERT INTO recipes (id, menu_item_id, ingredient_id, quantity, quantity_unit, restaurant_id) VALUES (${id}, ${menuItem.id}, ${ingredient.id}, ${quantity}, ${quantityUnit}, ${restaurantId})`;
 
         return {
           success: true,
@@ -269,7 +270,7 @@ export async function executeTool(
 
       case "get_recipe": {
         const menuItemName = args.menu_item_name as string;
-        const allItems = await sql`SELECT id, name, selling_price FROM menu_items` as Array<{ id: string; name: string; selling_price: number }>;
+        const allItems = await sql`SELECT id, name, selling_price FROM menu_items WHERE restaurant_id = ${restaurantId}` as Array<{ id: string; name: string; selling_price: number }>;
         const item = fuzzyFind(allItems, menuItemName);
 
         if (!item) {
@@ -318,7 +319,7 @@ export async function executeTool(
         }
 
         const id = uuid();
-        await sql`INSERT INTO expenses (id, category_id, description, amount, date, source) VALUES (${id}, ${categoryId}, ${description}, ${amount}, ${date}, 'manual')`;
+        await sql`INSERT INTO expenses (id, category_id, description, amount, date, source, restaurant_id) VALUES (${id}, ${categoryId}, ${description}, ${amount}, ${date}, 'manual', ${restaurantId})`;
 
         return {
           success: true,
@@ -337,11 +338,11 @@ export async function executeTool(
             COALESCE(SUM(net_revenue), 0) as net_revenue,
             COALESCE(SUM(total_tips), 0) as tips,
             COALESCE(SUM(order_count), 0) as orders
-          FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate}` as Array<{ total_revenue: number; net_revenue: number; tips: number; orders: number }>;
+          FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}` as Array<{ total_revenue: number; net_revenue: number; tips: number; orders: number }>;
 
         const topItems = await sql`
           SELECT square_item_name as name, SUM(quantity_sold) as qty, SUM(total_revenue) as revenue
-          FROM item_sales WHERE date >= ${startDate} AND date <= ${endDate}
+          FROM item_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}
           GROUP BY square_item_name ORDER BY revenue DESC LIMIT 10` as Array<{ name: string; qty: number; revenue: number }>;
 
         const rev = Number(totals?.total_revenue || 0);
@@ -367,8 +368,8 @@ export async function executeTool(
         const startDate = (args.start_date as string) || monthStart();
         const endDate = (args.end_date as string) || today();
 
-        const [revenue] = await sql`SELECT COALESCE(SUM(net_revenue), 0) as net FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate}` as Array<{ net: number }>;
-        const [labor] = await sql`SELECT COALESCE(SUM(total_labor_cost), 0) as total FROM daily_labor WHERE date >= ${startDate} AND date <= ${endDate}` as Array<{ total: number }>;
+        const [revenue] = await sql`SELECT COALESCE(SUM(net_revenue), 0) as net FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}` as Array<{ net: number }>;
+        const [labor] = await sql`SELECT COALESCE(SUM(total_labor_cost), 0) as total FROM daily_labor WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}` as Array<{ total: number }>;
         const [foodCost] = await sql`
           SELECT COALESCE(SUM(isales.quantity_sold * COALESCE(
             (SELECT SUM(r.quantity * i.cost_per_unit)
@@ -376,12 +377,12 @@ export async function executeTool(
              WHERE r.menu_item_id = isales.menu_item_id), 0)
           ), 0) as cost
           FROM item_sales isales
-          WHERE isales.date >= ${startDate} AND isales.date <= ${endDate} AND isales.menu_item_id IS NOT NULL` as Array<{ cost: number }>;
+          WHERE isales.date >= ${startDate} AND isales.date <= ${endDate} AND isales.menu_item_id IS NOT NULL AND isales.restaurant_id = ${restaurantId}` as Array<{ cost: number }>;
 
         const expenses = await sql`
           SELECT ec.type, COALESCE(SUM(e.amount), 0) as total
           FROM expenses e JOIN expense_categories ec ON e.category_id = ec.id
-          WHERE e.date >= ${startDate} AND e.date <= ${endDate}
+          WHERE e.date >= ${startDate} AND e.date <= ${endDate} AND e.restaurant_id = ${restaurantId}
           GROUP BY ec.type` as Array<{ type: string; total: number }>;
 
         const expenseMap = Object.fromEntries(expenses.map((e) => [e.type, Number(e.total)]));
@@ -414,8 +415,8 @@ export async function executeTool(
         const startDate = (args.start_date as string) || monthStart();
         const endDate = (args.end_date as string) || today();
 
-        const [rev] = await sql`SELECT COALESCE(SUM(net_revenue), 0) as net, COALESCE(SUM(order_count), 0) as orders FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate}` as Array<{ net: number; orders: number }>;
-        const [labor] = await sql`SELECT COALESCE(SUM(total_labor_cost), 0) as cost, COALESCE(SUM(total_hours), 0) as hours FROM daily_labor WHERE date >= ${startDate} AND date <= ${endDate}` as Array<{ cost: number; hours: number }>;
+        const [rev] = await sql`SELECT COALESCE(SUM(net_revenue), 0) as net, COALESCE(SUM(order_count), 0) as orders FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}` as Array<{ net: number; orders: number }>;
+        const [labor] = await sql`SELECT COALESCE(SUM(total_labor_cost), 0) as cost, COALESCE(SUM(total_hours), 0) as hours FROM daily_labor WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}` as Array<{ cost: number; hours: number }>;
         const [foodCost] = await sql`
           SELECT COALESCE(SUM(isales.quantity_sold * COALESCE(
             (SELECT SUM(r.quantity * i.cost_per_unit)
@@ -423,7 +424,7 @@ export async function executeTool(
              WHERE r.menu_item_id = isales.menu_item_id), 0)
           ), 0) as cost
           FROM item_sales isales
-          WHERE isales.date >= ${startDate} AND isales.date <= ${endDate} AND isales.menu_item_id IS NOT NULL` as Array<{ cost: number }>;
+          WHERE isales.date >= ${startDate} AND isales.date <= ${endDate} AND isales.menu_item_id IS NOT NULL AND isales.restaurant_id = ${restaurantId}` as Array<{ cost: number }>;
 
         const netRev = Number(rev?.net || 0);
         const orders = Number(rev?.orders || 0);
@@ -458,9 +459,9 @@ export async function executeTool(
           SELECT COALESCE(SUM(total_labor_cost), 0) as cost,
             COALESCE(SUM(total_hours), 0) as hours,
             COALESCE(SUM(shift_count), 0) as shifts
-          FROM daily_labor WHERE date >= ${startDate} AND date <= ${endDate}` as Array<{ cost: number; hours: number; shifts: number }>;
+          FROM daily_labor WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}` as Array<{ cost: number; hours: number; shifts: number }>;
 
-        const [rev] = await sql`SELECT COALESCE(SUM(net_revenue), 0) as net FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate}` as Array<{ net: number }>;
+        const [rev] = await sql`SELECT COALESCE(SUM(net_revenue), 0) as net FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}` as Array<{ net: number }>;
 
         const netRev = Number(rev?.net || 0);
         const laborCost = Number(labor?.cost || 0);
@@ -486,7 +487,7 @@ export async function executeTool(
         const startDate = monthStart();
         const endDate = today();
 
-        const [rev] = await sql`SELECT COALESCE(SUM(net_revenue), 0) as net FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate}` as Array<{ net: number }>;
+        const [rev] = await sql`SELECT COALESCE(SUM(net_revenue), 0) as net FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}` as Array<{ net: number }>;
 
         const highCostItems = await sql`
           SELECT mi.name, mi.selling_price,
@@ -497,7 +498,7 @@ export async function executeTool(
               ELSE 1.0 END))
             FROM recipes r JOIN ingredients i ON r.ingredient_id = i.id
             WHERE r.menu_item_id = mi.id), 0) as food_cost
-          FROM menu_items mi WHERE mi.is_active = true
+          FROM menu_items mi WHERE mi.is_active = true AND mi.restaurant_id = ${restaurantId}
           ORDER BY food_cost DESC
           LIMIT 20` as Array<{ name: string; selling_price: number; food_cost: number }>;
 
@@ -509,7 +510,7 @@ export async function executeTool(
 
         const topSellers = await sql`
           SELECT square_item_name as name, SUM(quantity_sold) as qty
-          FROM item_sales WHERE date >= ${startDate} AND date <= ${endDate}
+          FROM item_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}
           GROUP BY square_item_name ORDER BY qty DESC LIMIT 5` as Array<{ name: string; qty: number }>;
 
         const recommendations: string[] = [];
@@ -604,6 +605,7 @@ export async function executeTool(
           const briefings = await sql`
             SELECT summary, todo_items, alerts, scan_date
             FROM morning_briefings
+            WHERE restaurant_id = ${restaurantId}
             ORDER BY created_at DESC LIMIT 1
           ` as Array<{ summary: string; todo_items: unknown; alerts: unknown; scan_date: string }>;
           if (briefings.length > 0) morningBriefing = briefings[0];
@@ -614,30 +616,31 @@ export async function executeTool(
         // 1. Uncategorized transactions
         const [uncategorized] = await sql`
           SELECT COUNT(*) as cnt FROM plaid_transactions
-          WHERE review_status = 'pending' AND amount > 0 AND pending = false
+          WHERE review_status = 'pending' AND amount > 0 AND pending = false AND restaurant_id = ${restaurantId}
         ` as Array<{ cnt: number }>;
 
         const [needsReview] = await sql`
           SELECT COUNT(*) as cnt FROM plaid_transactions
-          WHERE review_status = 'needs_review'
+          WHERE review_status = 'needs_review' AND restaurant_id = ${restaurantId}
         ` as Array<{ cnt: number }>;
 
         // 2. Statement processing status
         const stmtStatus = await sql`
           SELECT status, COUNT(*) as cnt FROM bank_statements
+          WHERE restaurant_id = ${restaurantId}
           GROUP BY status
         ` as Array<{ status: string; cnt: number }>;
 
         // 3. Income this month
         const [income] = await sql`
           SELECT COALESCE(SUM(ABS(amount)), 0) as total FROM plaid_transactions
-          WHERE source = 'statement' AND amount < 0 AND date >= ${startDate} AND date <= ${endDate}
+          WHERE source = 'statement' AND amount < 0 AND date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}
         ` as Array<{ total: number }>;
 
         // 4. Expenses this month (from categorized transactions)
         const [expenses] = await sql`
           SELECT COALESCE(SUM(amount), 0) as total FROM plaid_transactions
-          WHERE source = 'statement' AND amount > 0 AND date >= ${startDate} AND date <= ${endDate}
+          WHERE source = 'statement' AND amount > 0 AND date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}
         ` as Array<{ total: number }>;
 
         // 5. Top expense categories
@@ -645,7 +648,7 @@ export async function executeTool(
           SELECT suggested_category_id as cat_id, COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total
           FROM plaid_transactions
           WHERE source = 'statement' AND amount > 0 AND suggested_category_id IS NOT NULL
-            AND date >= ${startDate} AND date <= ${endDate}
+            AND date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}
           GROUP BY suggested_category_id
           ORDER BY total DESC LIMIT 5
         ` as Array<{ cat_id: string; cnt: number; total: number }>;
@@ -653,20 +656,20 @@ export async function executeTool(
         // 6. Sales this month
         const [sales] = await sql`
           SELECT COALESCE(SUM(net_revenue), 0) as revenue, COALESCE(SUM(order_count), 0) as orders
-          FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate}
+          FROM daily_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}
         ` as Array<{ revenue: number; orders: number }>;
 
         // 7. Top sellers this month
         const topSellers = await sql`
           SELECT square_item_name as name, SUM(quantity_sold) as qty, SUM(total_revenue) as revenue
-          FROM item_sales WHERE date >= ${startDate} AND date <= ${endDate}
+          FROM item_sales WHERE date >= ${startDate} AND date <= ${endDate} AND restaurant_id = ${restaurantId}
           GROUP BY square_item_name ORDER BY revenue DESC LIMIT 5
         ` as Array<{ name: string; qty: number; revenue: number }>;
 
         // 8. Menu items without recipes
         const [noRecipe] = await sql`
           SELECT COUNT(*) as cnt FROM menu_items mi
-          WHERE mi.is_active = true AND NOT EXISTS (SELECT 1 FROM recipes r WHERE r.menu_item_id = mi.id)
+          WHERE mi.is_active = true AND mi.restaurant_id = ${restaurantId} AND NOT EXISTS (SELECT 1 FROM recipes r WHERE r.menu_item_id = mi.id)
         ` as Array<{ cnt: number }>;
 
         // Build to-do list
@@ -735,7 +738,7 @@ export async function executeTool(
         const itemSales = await sql`
           SELECT menu_item_id, square_item_name as name, SUM(quantity_sold) as qty
           FROM item_sales
-          WHERE date >= ${startStr} AND date <= ${endStr} AND menu_item_id IS NOT NULL
+          WHERE date >= ${startStr} AND date <= ${endStr} AND menu_item_id IS NOT NULL AND restaurant_id = ${restaurantId}
           GROUP BY menu_item_id, square_item_name
         ` as Array<{ menu_item_id: string; name: string; qty: number }>;
 
@@ -875,15 +878,15 @@ export async function executeTool(
         // Save to database
         const listId = uuid();
         await sql`
-          INSERT INTO shopping_lists (id, name, based_on_days, multiplier, total_estimated_cost, status)
-          VALUES (${listId}, ${"Shopping List — " + endStr}, ${days}, ${multiplier}, ${totalEstCost}, 'draft')
+          INSERT INTO shopping_lists (id, name, based_on_days, multiplier, total_estimated_cost, status, restaurant_id)
+          VALUES (${listId}, ${"Shopping List — " + endStr}, ${days}, ${multiplier}, ${totalEstCost}, 'draft', ${restaurantId})
         `;
 
         for (const [supplier, items] of supplierGroups) {
           for (const item of items) {
             await sql`
-              INSERT INTO shopping_list_items (id, shopping_list_id, ingredient_name, supplier, quantity_needed, estimated_cost, packages_to_buy, package_info)
-              VALUES (${uuid()}, ${listId}, ${item.ingredient}, ${supplier}, ${item.quantityNeeded}, ${item.estimatedCost}, ${item.packagesToBuy}, ${item.packageInfo})
+              INSERT INTO shopping_list_items (id, shopping_list_id, ingredient_name, supplier, quantity_needed, estimated_cost, packages_to_buy, package_info, restaurant_id)
+              VALUES (${uuid()}, ${listId}, ${item.ingredient}, ${supplier}, ${item.quantityNeeded}, ${item.estimatedCost}, ${item.packagesToBuy}, ${item.packageInfo}, ${restaurantId})
             `;
           }
         }
@@ -924,6 +927,7 @@ export async function executeTool(
         const lists = await sql`
           SELECT id, name, based_on_days, multiplier, total_estimated_cost, status, created_at
           FROM shopping_lists
+          WHERE restaurant_id = ${restaurantId}
           ORDER BY created_at DESC
           LIMIT ${limit}
         ` as Array<{ id: string; name: string; based_on_days: number; multiplier: number; total_estimated_cost: number; status: string; created_at: string }>;
@@ -965,7 +969,7 @@ export async function executeTool(
             SELECT id, name, unit, supplier, current_stock, par_level, reorder_point,
               package_size, package_unit, package_price
             FROM ingredients
-            WHERE LOWER(supplier) = LOWER(${supplier})
+            WHERE LOWER(supplier) = LOWER(${supplier}) AND restaurant_id = ${restaurantId}
             ORDER BY name
           ` as Array<{
             id: string; name: string; unit: string; supplier: string;
@@ -978,7 +982,7 @@ export async function executeTool(
             SELECT id, name, unit, supplier, current_stock, par_level, reorder_point,
               package_size, package_unit, package_price
             FROM ingredients
-            WHERE reorder_point > 0 OR current_stock > 0
+            WHERE (reorder_point > 0 OR current_stock > 0) AND restaurant_id = ${restaurantId}
             ORDER BY supplier, name
           ` as Array<{
             id: string; name: string; unit: string; supplier: string;
@@ -1034,7 +1038,7 @@ export async function executeTool(
         const reorderPoint = args.reorder_point as number | undefined;
         const parLevel = args.par_level as number | undefined;
 
-        const allIngredients = await sql`SELECT id, name FROM ingredients` as Array<{ id: string; name: string }>;
+        const allIngredients = await sql`SELECT id, name FROM ingredients WHERE restaurant_id = ${restaurantId}` as Array<{ id: string; name: string }>;
         const ingredient = fuzzyFind(allIngredients, ingredientName);
 
         if (!ingredient) {
@@ -1043,17 +1047,17 @@ export async function executeTool(
 
         // Build update based on what's provided
         if (reorderPoint !== undefined && parLevel !== undefined) {
-          await sql`UPDATE ingredients SET current_stock = ${quantity}, reorder_point = ${reorderPoint}, par_level = ${parLevel}, stock_counted_at = NOW(), updated_at = NOW() WHERE id = ${ingredient.id}`;
+          await sql`UPDATE ingredients SET current_stock = ${quantity}, reorder_point = ${reorderPoint}, par_level = ${parLevel}, stock_counted_at = NOW(), updated_at = NOW() WHERE id = ${ingredient.id} AND restaurant_id = ${restaurantId}`;
         } else if (reorderPoint !== undefined) {
-          await sql`UPDATE ingredients SET current_stock = ${quantity}, reorder_point = ${reorderPoint}, stock_counted_at = NOW(), updated_at = NOW() WHERE id = ${ingredient.id}`;
+          await sql`UPDATE ingredients SET current_stock = ${quantity}, reorder_point = ${reorderPoint}, stock_counted_at = NOW(), updated_at = NOW() WHERE id = ${ingredient.id} AND restaurant_id = ${restaurantId}`;
         } else if (parLevel !== undefined) {
-          await sql`UPDATE ingredients SET current_stock = ${quantity}, par_level = ${parLevel}, stock_counted_at = NOW(), updated_at = NOW() WHERE id = ${ingredient.id}`;
+          await sql`UPDATE ingredients SET current_stock = ${quantity}, par_level = ${parLevel}, stock_counted_at = NOW(), updated_at = NOW() WHERE id = ${ingredient.id} AND restaurant_id = ${restaurantId}`;
         } else {
-          await sql`UPDATE ingredients SET current_stock = ${quantity}, stock_counted_at = NOW(), updated_at = NOW() WHERE id = ${ingredient.id}`;
+          await sql`UPDATE ingredients SET current_stock = ${quantity}, stock_counted_at = NOW(), updated_at = NOW() WHERE id = ${ingredient.id} AND restaurant_id = ${restaurantId}`;
         }
 
         // Check if this is now low stock
-        const [updated] = await sql`SELECT current_stock, reorder_point, par_level FROM ingredients WHERE id = ${ingredient.id}` as Array<{ current_stock: number; reorder_point: number; par_level: number }>;
+        const [updated] = await sql`SELECT current_stock, reorder_point, par_level FROM ingredients WHERE id = ${ingredient.id} AND restaurant_id = ${restaurantId}` as Array<{ current_stock: number; reorder_point: number; par_level: number }>;
         const isLow = Number(updated.reorder_point) > 0 && quantity <= Number(updated.reorder_point);
 
         return {
@@ -1082,7 +1086,7 @@ export async function executeTool(
           lowItems = await sql`
             SELECT name, unit, supplier, current_stock, reorder_point, package_size, package_unit, package_price
             FROM ingredients
-            WHERE reorder_point > 0 AND current_stock <= reorder_point AND LOWER(supplier) = LOWER(${supplier})
+            WHERE reorder_point > 0 AND current_stock <= reorder_point AND LOWER(supplier) = LOWER(${supplier}) AND restaurant_id = ${restaurantId}
             ORDER BY (current_stock::float / NULLIF(reorder_point, 0)) ASC, name
           ` as Array<{
             name: string; unit: string; supplier: string; current_stock: number;
@@ -1092,7 +1096,7 @@ export async function executeTool(
           lowItems = await sql`
             SELECT name, unit, supplier, current_stock, reorder_point, package_size, package_unit, package_price
             FROM ingredients
-            WHERE reorder_point > 0 AND current_stock <= reorder_point
+            WHERE reorder_point > 0 AND current_stock <= reorder_point AND restaurant_id = ${restaurantId}
             ORDER BY (current_stock::float / NULLIF(reorder_point, 0)) ASC, name
           ` as Array<{
             name: string; unit: string; supplier: string; current_stock: number;
@@ -1142,7 +1146,7 @@ export async function executeTool(
               reviewed = false
           WHERE id = (
             SELECT id FROM chat_conversations
-            WHERE reviewed = false OR reviewed IS NULL
+            WHERE (reviewed = false OR reviewed IS NULL) AND restaurant_id = ${restaurantId}
             ORDER BY last_message_at DESC
             LIMIT 1
           )

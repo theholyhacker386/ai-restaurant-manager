@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 /**
  * Smart recommendation based on where the ACTUAL problem is.
@@ -81,7 +81,7 @@ function getRecommendation(foodPct: number, laborPct: number, primePct: number, 
 
 export async function GET(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
@@ -109,7 +109,8 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(total_discounts), 0) as total_discounts,
           COALESCE(SUM(order_count), 0) as total_orders
          FROM daily_sales
-         WHERE date >= ${startDate} AND date <= ${endDate}`;
+         WHERE date >= ${startDate} AND date <= ${endDate}
+           AND restaurant_id = ${restaurantId}`;
     const revenueRow: any = revenueRows[0];
 
     const revenue = revenueRow.net_revenue;
@@ -126,13 +127,15 @@ export async function GET(request: NextRequest) {
         ), 0) as theoretical_cost
         FROM item_sales isales
         WHERE isales.date >= ${startDate} AND isales.date <= ${endDate}
-          AND isales.menu_item_id IS NOT NULL`;
+          AND isales.menu_item_id IS NOT NULL
+          AND isales.restaurant_id = ${restaurantId}`;
     const theoreticalFoodCost: any = theoreticalRows[0];
 
     const receiptCostRows = await sql`SELECT COALESCE(SUM(r.total), 0) as receipt_total
          FROM receipts r
          WHERE r.status = 'confirmed'
-           AND r.receipt_date >= ${startDate} AND r.receipt_date <= ${endDate}`;
+           AND r.receipt_date >= ${startDate} AND r.receipt_date <= ${endDate}
+           AND r.restaurant_id = ${restaurantId}`;
     const receiptCostRow: any = receiptCostRows[0];
 
     const laborRows = await sql`SELECT
@@ -140,7 +143,8 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(total_hours), 0) as total_hours,
           COALESCE(SUM(shift_count), 0) as total_shifts
          FROM daily_labor
-         WHERE date >= ${startDate} AND date <= ${endDate}`;
+         WHERE date >= ${startDate} AND date <= ${endDate}
+           AND restaurant_id = ${restaurantId}`;
     const laborRow: any = laborRows[0];
 
     const expensesByType = await sql`SELECT
@@ -151,6 +155,7 @@ export async function GET(request: NextRequest) {
          FROM expenses e
          JOIN expense_categories ec ON e.category_id = ec.id
          WHERE e.date >= ${startDate} AND e.date <= ${endDate}
+           AND e.restaurant_id = ${restaurantId}
          GROUP BY ec.id, ec.type, ec.name
          ORDER BY ec.type, COALESCE(SUM(e.amount), 0) DESC` as Array<{
       type: string; category_name: string; category_id: string; total: number;

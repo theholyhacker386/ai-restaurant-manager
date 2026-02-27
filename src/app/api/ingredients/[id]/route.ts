@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 // GET a single ingredient by ID
 export async function GET(
@@ -7,10 +7,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
 
-    const rows = await sql`SELECT * FROM ingredients WHERE id = ${id}`;
+    const rows = await sql`SELECT * FROM ingredients WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     const ingredient = rows[0];
 
     if (!ingredient) {
@@ -46,7 +46,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
     const body = await request.json();
 
@@ -67,7 +67,7 @@ export async function PUT(
     const result = await sql`UPDATE ingredients
          SET name = ${name}, unit = ${unit}, cost_per_unit = ${cost_per_unit}, package_size = ${package_size || null}, package_unit = ${package_unit || null},
              package_price = ${package_price || null}, supplier = ${supplier || "Walmart"}, notes = ${notes || null}, updated_at = NOW()
-         WHERE id = ${id}`;
+         WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({
       id,
@@ -90,7 +90,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
 
     const recipeCount = await sql`SELECT COUNT(*) as count FROM recipes WHERE ingredient_id = ${id}`;
@@ -105,7 +105,7 @@ export async function DELETE(
       );
     }
 
-    await sql`DELETE FROM ingredients WHERE id = ${id}`;
+    await sql`DELETE FROM ingredients WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

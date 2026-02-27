@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -11,7 +11,7 @@ import { v4 as uuid } from "uuid";
  */
 export async function POST(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { days = 7, multiplier = 1.0, supplier: supplierFilter } = await req.json();
 
     const startDate = new Date();
@@ -26,6 +26,7 @@ export async function POST(req: Request) {
         SELECT menu_item_id, SUM(quantity_sold) as qty
         FROM item_sales
         WHERE date >= ${startStr} AND date <= ${endStr} AND menu_item_id IS NOT NULL
+          AND restaurant_id = ${restaurantId}
         GROUP BY menu_item_id
       ),
       direct_needs AS (
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
         FROM sales s
         JOIN recipes r ON r.menu_item_id = s.menu_item_id
         JOIN ingredients i ON r.ingredient_id = i.id
-        WHERE i.supplier != 'Homemade'
+        WHERE i.supplier != 'Homemade' AND i.restaurant_id = ${restaurantId}
         GROUP BY i.id, i.name, i.unit, i.supplier, i.cost_per_unit, i.package_size, i.package_unit, i.package_price, i.current_stock
       ),
       sub_needs AS (
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
         JOIN ingredients i ON r.ingredient_id = i.id
         JOIN sub_recipe_ingredients sri ON sri.parent_ingredient_id = i.id
         JOIN ingredients ci ON sri.child_ingredient_id = ci.id
-        WHERE i.supplier = 'Homemade'
+        WHERE i.supplier = 'Homemade' AND i.restaurant_id = ${restaurantId}
         GROUP BY ci.id, ci.name, ci.unit, ci.supplier, ci.cost_per_unit, ci.package_size, ci.package_unit, ci.package_price, ci.current_stock
       ),
       all_needs AS (
@@ -94,7 +95,7 @@ export async function POST(req: Request) {
         i.name, i.unit, i.supplier, i.cost_per_unit, i.package_size, i.package_unit, i.package_price, i.current_stock
       FROM reorder_flags rf
       JOIN ingredients i ON i.id = rf.ingredient_id
-      WHERE rf.resolved = false
+      WHERE rf.resolved = false AND rf.restaurant_id = ${restaurantId}
     `) as any[];
 
     // Merge reorder flags into needs (avoid duplicates)
@@ -197,8 +198,8 @@ export async function POST(req: Request) {
       : `Shopping List — ${endStr}`;
 
     await sql`
-      INSERT INTO shopping_lists (id, name, based_on_days, multiplier, total_estimated_cost, status)
-      VALUES (${listId}, ${listName}, ${days}, ${multiplier}, ${totalEstCost}, 'draft')
+      INSERT INTO shopping_lists (id, restaurant_id, name, based_on_days, multiplier, total_estimated_cost, status)
+      VALUES (${listId}, ${restaurantId}, ${listName}, ${days}, ${multiplier}, ${totalEstCost}, 'draft')
     `;
 
     for (const [supplier, items] of supplierGroups) {
@@ -212,12 +213,12 @@ export async function POST(req: Request) {
 
     // Mark reorder flags as resolved now that they're on a new list
     if (reorderFlags.length > 0) {
-      await sql`UPDATE reorder_flags SET resolved = true WHERE resolved = false`;
+      await sql`UPDATE reorder_flags SET resolved = true WHERE resolved = false AND restaurant_id = ${restaurantId}`;
     }
 
     // Get all unique suppliers for the UI
     const allSuppliers = (await sql`
-      SELECT DISTINCT supplier FROM ingredients WHERE supplier IS NOT NULL AND supplier != '' ORDER BY supplier
+      SELECT DISTINCT supplier FROM ingredients WHERE supplier IS NOT NULL AND supplier != '' AND restaurant_id = ${restaurantId} ORDER BY supplier
     `) as Array<{ supplier: string }>;
 
     return NextResponse.json({

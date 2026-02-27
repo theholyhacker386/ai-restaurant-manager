@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { getSettings } from "@/lib/settings";
 
 export async function GET() {
   try {
-    const sql = getDb();
-    const settings = await getSettings();
+    const { sql, restaurantId } = await getTenantDb();
+    const settings = await getSettings(restaurantId);
 
     const sales = await sql`
       SELECT
@@ -15,8 +15,9 @@ export async function GET() {
         COALESCE(dl.total_hours, 0) as labor_hours,
         ds.order_count
       FROM daily_sales ds
-      LEFT JOIN daily_labor dl ON ds.date = dl.date
+      LEFT JOIN daily_labor dl ON ds.date = dl.date AND dl.restaurant_id = ${restaurantId}
       WHERE ds.date >= (CURRENT_DATE - INTERVAL '90 days')::TEXT
+        AND ds.restaurant_id = ${restaurantId}
       ORDER BY ds.date
     ` as any[];
 
@@ -63,6 +64,7 @@ export async function GET() {
     const events = await sql`
       SELECT * FROM forecast_events
       WHERE date >= ${today_str} AND date <= ${future_str}
+        AND restaurant_id = ${restaurantId}
       ORDER BY date
     ` as any[];
 

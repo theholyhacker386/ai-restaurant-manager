@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { callOpenAIWithRetry } from "@/lib/openai";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -10,7 +10,7 @@ import { callOpenAIWithRetry } from "@/lib/openai";
  */
 export async function POST(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { listId } = await req.json();
 
     if (!listId) {
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     // Get the shopping list and its items
     const listRows = await sql`
       SELECT id, name, based_on_days, multiplier, total_estimated_cost, created_at
-      FROM shopping_lists WHERE id = ${listId}
+      FROM shopping_lists WHERE id = ${listId} AND restaurant_id = ${restaurantId}
     ` as any[];
 
     if (listRows.length === 0) {
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
         COUNT(sli.id) as item_count
       FROM shopping_lists sl
       LEFT JOIN shopping_list_items sli ON sli.shopping_list_id = sl.id
-      WHERE sl.id != ${listId}
+      WHERE sl.id != ${listId} AND sl.restaurant_id = ${restaurantId}
       GROUP BY sl.id
       ORDER BY sl.created_at DESC
       LIMIT 3
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     const ingredientContext = await sql`
       SELECT name, unit, supplier, ingredient_type, package_size, package_unit, current_stock
       FROM ingredients
-      WHERE supplier != 'Homemade'
+      WHERE supplier != 'Homemade' AND restaurant_id = ${restaurantId}
       ORDER BY supplier, name
     ` as any[];
 
@@ -73,6 +73,7 @@ export async function POST(req: Request) {
         SUM(CASE WHEN date >= (CURRENT_DATE - 14)::text AND date < (CURRENT_DATE - 7)::text THEN order_count ELSE 0 END) as orders_last_week,
         SUM(CASE WHEN date >= (CURRENT_DATE - 28)::text THEN order_count ELSE 0 END) / 4.0 as avg_weekly_orders
       FROM daily_sales
+      WHERE restaurant_id = ${restaurantId}
     ` as any[];
 
     // Build the AI prompt

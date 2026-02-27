@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { assistantTools } from "@/lib/assistant-tools";
 import { buildSystemPrompt } from "@/lib/assistant-prompt";
 import { executeTool } from "@/lib/assistant-executor";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { auth } from "@/lib/auth";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
     } catch { /* proceed without user */ }
 
     // Get or create conversation
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     let convId = conversationId || null;
     if (!convId) {
       const [conv] = await sql`
-        INSERT INTO chat_conversations (user_id)
-        VALUES (${userId || 'unknown'})
+        INSERT INTO chat_conversations (user_id, restaurant_id)
+        VALUES (${userId || 'unknown'}, ${restaurantId})
         RETURNING id
       ` as any[];
       convId = conv.id;
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     await sql`
       UPDATE chat_conversations
       SET last_message_at = NOW(), message_count = message_count + 1
-      WHERE id = ${convId}
+      WHERE id = ${convId} AND restaurant_id = ${restaurantId}
     `;
 
     // Enrich user message with page context so the AI knows where the user is
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify({ type: "conversation_id", id: convId })}\n\n`)
           );
-          await processConversation(openai, messages, controller, encoder, 0, requestContext, responseCollector);
+          await processConversation(openai, messages, controller, encoder, 0, requestContext, responseCollector, restaurantId);
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : "Unknown error";
           controller.enqueue(
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
               await sql`
                 UPDATE chat_conversations
                 SET last_message_at = NOW(), message_count = message_count + 1
-                WHERE id = ${convId}
+                WHERE id = ${convId} AND restaurant_id = ${restaurantId}
               `;
             }
             // Save tool calls
@@ -172,7 +172,8 @@ async function processConversation(
   encoder: TextEncoder,
   depth = 0,
   requestContext: { screenshot: string | null } = { screenshot: null },
-  responseCollector: { text: string; toolCalls: any[] } = { text: "", toolCalls: [] }
+  responseCollector: { text: string; toolCalls: any[] } = { text: "", toolCalls: [] },
+  restaurantId?: string
 ) {
   // Safety: max 5 tool-call rounds to allow complex multi-step workflows (e.g. inventory: search → add → update stock)
   if (depth > 5) {
@@ -241,7 +242,7 @@ async function processConversation(
       );
 
       // Execute the tool (pass screenshot context for issue reports)
-      const result = await executeTool(toolName, toolArgs, requestContext.screenshot);
+      const result = await executeTool(toolName, toolArgs, requestContext.screenshot, restaurantId);
 
       // Log tool call
       responseCollector.toolCalls.push({ name: toolName, args: toolArgs, result: result.data || result.error });
@@ -264,7 +265,7 @@ async function processConversation(
     }
 
     // Recurse: let the AI generate a response using the tool results
-    await processConversation(openai, messages, controller, encoder, depth + 1, requestContext, responseCollector);
+    await processConversation(openai, messages, controller, encoder, depth + 1, requestContext, responseCollector, restaurantId);
     return;
   }
 

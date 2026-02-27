@@ -17,12 +17,12 @@ export async function processStatement(statementId: string): Promise<void> {
   await sql`UPDATE bank_statements SET status = 'processing' WHERE id = ${statementId}`;
 
   // Load the stored PDF
-  const rows = await sql`SELECT pdf_data, file_name FROM bank_statements WHERE id = ${statementId}`;
+  const rows = await sql`SELECT pdf_data, file_name, restaurant_id FROM bank_statements WHERE id = ${statementId}`;
   if (rows.length === 0) {
     throw new Error(`Statement ${statementId} not found`);
   }
 
-  const { pdf_data, file_name } = rows[0];
+  const { pdf_data, file_name, restaurant_id } = rows[0];
   const buffer = Buffer.from(pdf_data, "base64");
 
   // Extract text from PDF
@@ -92,12 +92,12 @@ export async function processStatement(statementId: string): Promise<void> {
       await sql`
         INSERT INTO plaid_transactions (
           id, plaid_account_id, transaction_id, amount, date, name, merchant_name,
-          source, statement_id, review_status
+          source, statement_id, review_status, restaurant_id
         )
         VALUES (
           ${txnId}, ${null}, ${txnId}, ${amount}, ${t.date},
           ${t.description}, ${t.description},
-          'statement', ${statementId}, 'pending'
+          'statement', ${statementId}, 'pending', ${restaurant_id}
         )
         ON CONFLICT (transaction_id) DO NOTHING
       `;
@@ -290,21 +290,34 @@ export interface ProcessingSummary {
   categorized: boolean;
 }
 
-export async function getProcessingSummary(): Promise<ProcessingSummary> {
+export async function getProcessingSummary(restaurantId?: string): Promise<ProcessingSummary> {
   const sql = getDb();
 
   // Get statements from the last 24 hours
-  const stats = await sql`
-    SELECT
-      COUNT(*) as total,
-      COUNT(*) FILTER (WHERE status = 'queued') as queued,
-      COUNT(*) FILTER (WHERE status = 'processing') as processing,
-      COUNT(*) FILTER (WHERE status = 'completed') as completed,
-      COUNT(*) FILTER (WHERE status = 'error') as errors,
-      COALESCE(SUM(transaction_count) FILTER (WHERE status = 'completed'), 0) as total_transactions
-    FROM bank_statements
-    WHERE created_at > NOW() - INTERVAL '24 hours'
-  `;
+  const stats = restaurantId
+    ? await sql`
+        SELECT
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE status = 'queued') as queued,
+          COUNT(*) FILTER (WHERE status = 'processing') as processing,
+          COUNT(*) FILTER (WHERE status = 'completed') as completed,
+          COUNT(*) FILTER (WHERE status = 'error') as errors,
+          COALESCE(SUM(transaction_count) FILTER (WHERE status = 'completed'), 0) as total_transactions
+        FROM bank_statements
+        WHERE created_at > NOW() - INTERVAL '24 hours'
+          AND restaurant_id = ${restaurantId}
+      `
+    : await sql`
+        SELECT
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE status = 'queued') as queued,
+          COUNT(*) FILTER (WHERE status = 'processing') as processing,
+          COUNT(*) FILTER (WHERE status = 'completed') as completed,
+          COUNT(*) FILTER (WHERE status = 'error') as errors,
+          COALESCE(SUM(transaction_count) FILTER (WHERE status = 'completed'), 0) as total_transactions
+        FROM bank_statements
+        WHERE created_at > NOW() - INTERVAL '24 hours'
+      `;
 
   const row = stats[0];
   const total = Number(row.total);
@@ -315,12 +328,20 @@ export async function getProcessingSummary(): Promise<ProcessingSummary> {
   // Check if categorization has run (are there needs_review transactions from recent statements?)
   let categorized = false;
   if (completed > 0 && queued === 0 && processing === 0) {
-    const catCheck = await sql`
-      SELECT COUNT(*) as cnt FROM plaid_transactions
-      WHERE source = 'statement'
-        AND review_status IN ('needs_review', 'approved', 'transfer')
-        AND created_at > NOW() - INTERVAL '24 hours'
-    `;
+    const catCheck = restaurantId
+      ? await sql`
+          SELECT COUNT(*) as cnt FROM plaid_transactions
+          WHERE source = 'statement'
+            AND review_status IN ('needs_review', 'approved', 'transfer')
+            AND created_at > NOW() - INTERVAL '24 hours'
+            AND restaurant_id = ${restaurantId}
+        `
+      : await sql`
+          SELECT COUNT(*) as cnt FROM plaid_transactions
+          WHERE source = 'statement'
+            AND review_status IN ('needs_review', 'approved', 'transfer')
+            AND created_at > NOW() - INTERVAL '24 hours'
+        `;
     categorized = Number(catCheck[0].cnt) > 0;
   }
 

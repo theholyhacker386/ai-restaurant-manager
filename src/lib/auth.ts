@@ -17,7 +17,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const sql = neon(process.env.NEON_DATABASE_URL!);
         const email = credentials.email as string;
-        const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed FROM users WHERE email = ${email}`;
+        const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin FROM users WHERE email = ${email}`;
 
         if (rows.length === 0) return null;
 
@@ -29,7 +29,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (!passwordMatch) return null;
 
-        return { id: user.id, email: user.email, name: user.name, role: user.role || "manager", onboardingCompleted: user.onboarding_completed ?? false };
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role || "manager",
+          onboardingCompleted: user.onboarding_completed ?? false,
+          restaurantId: user.restaurant_id || null,
+          isPlatformAdmin: user.is_platform_admin ?? false,
+        };
       },
     }),
     // PIN-only login
@@ -45,12 +53,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const pin = credentials.pin as string;
 
         // Only check users that have a PIN set
-        const rows = await sql`SELECT id, email, name, role, pin_hash, onboarding_completed FROM users WHERE pin_hash IS NOT NULL`;
+        const rows = await sql`SELECT id, email, name, role, pin_hash, onboarding_completed, restaurant_id, is_platform_admin FROM users WHERE pin_hash IS NOT NULL`;
 
         for (const user of rows) {
           const match = await bcrypt.compare(pin, user.pin_hash);
           if (match) {
-            return { id: user.id, email: user.email, name: user.name, role: user.role || "manager", onboardingCompleted: user.onboarding_completed ?? false };
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role || "manager",
+              onboardingCompleted: user.onboarding_completed ?? false,
+              restaurantId: user.restaurant_id || null,
+              isPlatformAdmin: user.is_platform_admin ?? false,
+            };
           }
         }
 
@@ -70,6 +86,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.role = (user as any).role || "manager";
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         token.onboardingCompleted = (user as any).onboardingCompleted ?? false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        token.restaurantId = (user as any).restaurantId || null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        token.isPlatformAdmin = (user as any).isPlatformAdmin ?? false;
       }
       return token;
     },
@@ -80,6 +100,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         (session.user as any).role = token.role as string;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).onboardingCompleted = token.onboardingCompleted ?? true;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).restaurantId = token.restaurantId || null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).isPlatformAdmin = token.isPlatformAdmin ?? false;
       }
       return session;
     },

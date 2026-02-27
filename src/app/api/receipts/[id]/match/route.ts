@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { findBestMatch } from "@/lib/fuzzy-match";
 
 // POST - fuzzy-match receipt items against ingredients
@@ -8,14 +8,14 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
 
     // Check if we should only re-match unmatched items (don't overwrite manual matches)
     const url = new URL(request.url);
     const unmatchedOnly = url.searchParams.get("unmatched_only") === "true";
 
-    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id}`;
+    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     if (receiptRows.length === 0) {
       return NextResponse.json(
         { error: "Receipt not found" },
@@ -28,7 +28,7 @@ export async function POST(
       ? await sql`SELECT * FROM receipt_items WHERE receipt_id = ${id} AND (match_status IS NULL OR match_status = 'unmatched' OR ingredient_id IS NULL)` as Array<{ id: string; raw_name: string }>
       : await sql`SELECT * FROM receipt_items WHERE receipt_id = ${id}` as Array<{ id: string; raw_name: string }>;
 
-    const ingredients = await sql`SELECT id, name FROM ingredients` as Array<{ id: string; name: string }>;
+    const ingredients = await sql`SELECT id, name FROM ingredients WHERE restaurant_id = ${restaurantId}` as Array<{ id: string; name: string }>;
 
     const results: Array<{
       item_id: string;
@@ -37,7 +37,7 @@ export async function POST(
     }> = [];
 
     // Load learned matches from memory (past user confirmations)
-    const memory = await sql`SELECT raw_name_lower, raw_name_normalized, ingredient_id FROM receipt_match_memory` as Array<{ raw_name_lower: string; raw_name_normalized: string; ingredient_id: string }>;
+    const memory = await sql`SELECT raw_name_lower, raw_name_normalized, ingredient_id FROM receipt_match_memory WHERE restaurant_id = ${restaurantId}` as Array<{ raw_name_lower: string; raw_name_normalized: string; ingredient_id: string }>;
     const memoryByExact = new Map<string, string>();
     const memoryByNormalized = new Map<string, string>();
     for (const m of memory) {
@@ -94,7 +94,7 @@ export async function POST(
       });
     }
 
-    await sql`UPDATE receipts SET status = 'matched' WHERE id = ${id}`;
+    await sql`UPDATE receipts SET status = 'matched' WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     const matchedItems = await sql`SELECT ri.*, i.name as ingredient_name, i.package_price as current_package_price,
                 i.package_size as current_package_size, i.package_unit as current_package_unit,

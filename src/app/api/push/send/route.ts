@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import webpush from "web-push";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,7 +23,7 @@ if (VAPID_PUBLIC && VAPID_PRIVATE) {
 
 export async function POST(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { title, body, url, tag } = await req.json();
 
     if (!title || !body) {
@@ -33,6 +33,7 @@ export async function POST(req: Request) {
     // Get all push subscriptions
     const subscriptions = (await sql`
       SELECT id, endpoint, keys_p256dh, keys_auth FROM push_subscriptions
+      WHERE restaurant_id = ${restaurantId}
     `) as Array<{ id: string; endpoint: string; keys_p256dh: string; keys_auth: string }>;
 
     if (subscriptions.length === 0) {

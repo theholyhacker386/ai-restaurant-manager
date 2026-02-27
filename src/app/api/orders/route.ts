@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const ingredients = await sql`
       SELECT
@@ -20,6 +20,7 @@ export async function GET() {
         i.par_level,
         i.cost_per_unit
       FROM ingredients i
+      WHERE i.restaurant_id = ${restaurantId}
       ORDER BY i.supplier, i.ingredient_type, i.name
     ` as any[];
 

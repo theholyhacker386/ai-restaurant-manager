@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { after } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { getProcessingSummary, processAllQueued } from "@/lib/process-statement";
 
 export const maxDuration = 300;
 
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     // Get all statements from the last 24 hours with their current status
     const statements = await sql`
@@ -15,10 +15,11 @@ export async function GET() {
         id, file_name, status, bank_name, transaction_count, error_message, created_at
       FROM bank_statements
       WHERE created_at > NOW() - INTERVAL '24 hours'
+        AND restaurant_id = ${restaurantId}
       ORDER BY created_at DESC
     `;
 
-    const summary = await getProcessingSummary();
+    const summary = await getProcessingSummary(restaurantId);
 
     // If there are queued or stuck items, re-trigger background processing.
     // This acts as a safety net — every time the UI polls for status,

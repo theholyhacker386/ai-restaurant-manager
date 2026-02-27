@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
 // GET - list all receipts with optional filters
 export async function GET(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(request.url);
     const supplier = searchParams.get("supplier");
     const status = searchParams.get("status");
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
           (SELECT COUNT(*) FROM receipt_items ri WHERE ri.receipt_id = r.id) as item_count,
           (SELECT COUNT(*) FROM receipt_items ri WHERE ri.receipt_id = r.id AND ri.match_status IN ('auto_matched', 'manual_matched')) as matched_count
         FROM receipts r
-        WHERE r.supplier LIKE ${'%' + supplier + '%'} AND r.status = ${status} AND r.receipt_date >= ${startDate} AND r.receipt_date <= ${endDate}
+        WHERE r.supplier LIKE ${'%' + supplier + '%'} AND r.status = ${status} AND r.receipt_date >= ${startDate} AND r.receipt_date <= ${endDate} AND r.restaurant_id = ${restaurantId}
         ORDER BY r.created_at DESC`;
     } else if (status) {
       receipts = await sql`
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
           (SELECT COUNT(*) FROM receipt_items ri WHERE ri.receipt_id = r.id) as item_count,
           (SELECT COUNT(*) FROM receipt_items ri WHERE ri.receipt_id = r.id AND ri.match_status IN ('auto_matched', 'manual_matched')) as matched_count
         FROM receipts r
-        WHERE r.status = ${status}
+        WHERE r.status = ${status} AND r.restaurant_id = ${restaurantId}
         ORDER BY r.created_at DESC`;
     } else {
       receipts = await sql`
@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
           (SELECT COUNT(*) FROM receipt_items ri WHERE ri.receipt_id = r.id AND ri.match_status IN ('auto_matched', 'manual_matched')) as matched_count,
           (SELECT string_agg(ri.raw_name, ', ') FROM receipt_items ri WHERE ri.receipt_id = r.id) as item_names
         FROM receipts r
+        WHERE r.restaurant_id = ${restaurantId}
         ORDER BY r.created_at DESC`;
     }
 
@@ -53,6 +54,7 @@ export async function GET(request: NextRequest) {
            AND ri.total_price > 0
            AND ri.match_status IN ('auto_matched', 'manual_matched')
            AND (((ri.total_price / GREATEST(ri.quantity, 1)) - i.package_price) / i.package_price) > 0.30
+           AND r.restaurant_id = ${restaurantId}
          ORDER BY r.created_at DESC
          LIMIT 10`;
 
@@ -69,15 +71,15 @@ export async function GET(request: NextRequest) {
 // POST - create a new receipt record
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     const { supplier, receipt_date, subtotal, tax, total, image_path, notes } = body;
 
     const id = uuid();
 
-    await sql`INSERT INTO receipts (id, supplier, receipt_date, subtotal, tax, total, image_path, status, notes)
-       VALUES (${id}, ${supplier || null}, ${receipt_date || null}, ${subtotal || 0}, ${tax || 0}, ${total || 0}, ${image_path || null}, 'pending', ${notes || null})`;
+    await sql`INSERT INTO receipts (id, supplier, receipt_date, subtotal, tax, total, image_path, status, notes, restaurant_id)
+       VALUES (${id}, ${supplier || null}, ${receipt_date || null}, ${subtotal || 0}, ${tax || 0}, ${total || 0}, ${image_path || null}, 'pending', ${notes || null}, ${restaurantId})`;
 
     return NextResponse.json({ id, status: "pending" });
   } catch (error: unknown) {

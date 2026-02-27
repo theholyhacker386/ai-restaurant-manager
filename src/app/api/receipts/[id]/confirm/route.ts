@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 import { convertToBaseUnit } from "@/lib/unit-conversions";
 
@@ -17,12 +17,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
     const body = await request.json();
     const { items } = body as { items: ConfirmItem[] };
 
-    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id}`;
+    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     const receipt = receiptRows[0];
 
     if (!receipt) {
@@ -140,7 +140,7 @@ export async function POST(
       }
     }
 
-    await sql`UPDATE receipts SET status = 'confirmed' WHERE id = ${id}`;
+    await sql`UPDATE receipts SET status = 'confirmed' WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     // Save learned matches to memory — so next time we see the same product, we know instantly
     for (const item of items) {
@@ -156,8 +156,8 @@ export async function POST(
         .replace(/\b\d+\b/g, "")
         .replace(/\s+/g, " ")
         .trim();
-      await sql`INSERT INTO receipt_match_memory (raw_name_lower, raw_name_normalized, ingredient_id)
-        VALUES (${rawLower}, ${normalized}, ${item.ingredient_id})
+      await sql`INSERT INTO receipt_match_memory (raw_name_lower, raw_name_normalized, ingredient_id, restaurant_id)
+        VALUES (${rawLower}, ${normalized}, ${item.ingredient_id}, ${restaurantId})
         ON CONFLICT (raw_name_lower) DO UPDATE SET
           ingredient_id = ${item.ingredient_id},
           match_count = receipt_match_memory.match_count + 1,
@@ -177,17 +177,17 @@ export async function POST(
 
       if (cogsTotal > 0) {
         // Find the "Ingredients/Food" COGS category, fall back to any COGS category
-        const catRows = await sql`SELECT id FROM expense_categories WHERE type = 'cogs' ORDER BY CASE WHEN name ILIKE '%ingredient%' OR name ILIKE '%food%' THEN 0 ELSE 1 END LIMIT 1`;
+        const catRows = await sql`SELECT id FROM expense_categories WHERE type = 'cogs' AND restaurant_id = ${restaurantId} ORDER BY CASE WHEN name ILIKE '%ingredient%' OR name ILIKE '%food%' THEN 0 ELSE 1 END LIMIT 1`;
         const categoryId = catRows[0]?.id || null;
 
         const supplier = (receipt as Record<string, unknown>).supplier as string || "Unknown Store";
         const receiptDate = (receipt as Record<string, unknown>).receipt_date as string || new Date().toISOString().slice(0, 10);
 
         // Only create expense if we haven't already for this receipt (idempotent)
-        const existingExpense = await sql`SELECT id FROM expenses WHERE source = 'receipt' AND source_transaction_id = ${id} LIMIT 1`;
+        const existingExpense = await sql`SELECT id FROM expenses WHERE source = 'receipt' AND source_transaction_id = ${id} AND restaurant_id = ${restaurantId} LIMIT 1`;
         if (existingExpense.length === 0) {
-          await sql`INSERT INTO expenses (id, category_id, description, amount, date, is_recurring, source, source_transaction_id, notes)
-            VALUES (${uuid()}, ${categoryId}, ${`Receipt: ${supplier}`}, ${cogsTotal}, ${receiptDate}, ${false}, 'receipt', ${id}, ${`Auto-created from receipt confirmation (${matchedItems.length} items)`})`;
+          await sql`INSERT INTO expenses (id, category_id, description, amount, date, is_recurring, source, source_transaction_id, notes, restaurant_id)
+            VALUES (${uuid()}, ${categoryId}, ${`Receipt: ${supplier}`}, ${cogsTotal}, ${receiptDate}, ${false}, 'receipt', ${id}, ${`Auto-created from receipt confirmation (${matchedItems.length} items)`}, ${restaurantId})`;
         }
       }
     }

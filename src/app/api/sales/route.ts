@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,11 +14,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const dailySales = await sql`SELECT date, total_revenue, total_tax, total_tips, total_discounts, net_revenue, order_count
          FROM daily_sales
          WHERE date >= ${startDate} AND date <= ${endDate}
+           AND restaurant_id = ${restaurantId}
          ORDER BY date DESC`;
 
     const topItems = await sql`SELECT
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
           menu_item_id
          FROM item_sales
          WHERE date >= ${startDate} AND date <= ${endDate}
+           AND restaurant_id = ${restaurantId}
          GROUP BY square_item_name, menu_item_id
          ORDER BY SUM(total_revenue) DESC
          LIMIT 20`;
@@ -40,7 +42,8 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(net_revenue), 0) as net_revenue,
           COALESCE(SUM(order_count), 0) as total_orders
          FROM daily_sales
-         WHERE date >= ${startDate} AND date <= ${endDate}`;
+         WHERE date >= ${startDate} AND date <= ${endDate}
+           AND restaurant_id = ${restaurantId}`;
     const totals: any = totalsRows[0];
 
     const avgOrderValue =

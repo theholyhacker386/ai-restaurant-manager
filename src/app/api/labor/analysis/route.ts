@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   const endDate = searchParams.get("endDate");
 
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const sales = await sql`
       SELECT
@@ -16,8 +16,9 @@ export async function GET(request: Request) {
         COALESCE(dl.total_labor_cost, 0) as labor_cost,
         COALESCE(dl.total_hours, 0) as labor_hours
       FROM daily_sales ds
-      LEFT JOIN daily_labor dl ON ds.date = dl.date
+      LEFT JOIN daily_labor dl ON ds.date = dl.date AND dl.restaurant_id = ${restaurantId}
       WHERE ds.date >= ${startDate} AND ds.date <= ${endDate}
+        AND ds.restaurant_id = ${restaurantId}
       ORDER BY ds.date
     ` as any[];
 

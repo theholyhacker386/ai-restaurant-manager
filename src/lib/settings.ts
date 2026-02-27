@@ -30,10 +30,12 @@ const DEFAULTS: BusinessSettings = {
   },
 };
 
-export async function getSettings(): Promise<BusinessSettings> {
+export async function getSettings(restaurantId?: string): Promise<BusinessSettings> {
   try {
     const sql = getDb();
-    const rows = await sql`SELECT * FROM business_settings WHERE id = 'default'`;
+    const rows = restaurantId
+      ? await sql`SELECT * FROM business_settings WHERE restaurant_id = ${restaurantId}`
+      : await sql`SELECT * FROM business_settings WHERE id = 'default'`;
     if (rows.length === 0) return DEFAULTS;
 
     const row = rows[0];

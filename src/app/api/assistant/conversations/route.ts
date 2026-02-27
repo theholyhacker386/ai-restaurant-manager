@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { auth } from "@/lib/auth";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const withMessages = searchParams.get("messages") === "true";
     const conversationId = searchParams.get("id");
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     // Single conversation with all messages
     if (conversationId) {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
         SELECT c.*, u.name as user_name, u.email as user_email
         FROM chat_conversations c
         LEFT JOIN users u ON u.id = c.user_id
-        WHERE c.id = ${conversationId}
+        WHERE c.id = ${conversationId} AND c.restaurant_id = ${restaurantId}
       ` as any[];
       if (!conv) {
         return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
         SELECT c.*, u.name as user_name, u.email as user_email
         FROM chat_conversations c
         LEFT JOIN users u ON u.id = c.user_id
-        WHERE c.user_id = ${userId} AND c.reviewed = ${reviewed === "true"}
+        WHERE c.user_id = ${userId} AND c.reviewed = ${reviewed === "true"} AND c.restaurant_id = ${restaurantId}
         ORDER BY c.last_message_at DESC LIMIT ${limit}
       ` as any[];
     } else if (userId) {
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
         SELECT c.*, u.name as user_name, u.email as user_email
         FROM chat_conversations c
         LEFT JOIN users u ON u.id = c.user_id
-        WHERE c.user_id = ${userId}
+        WHERE c.user_id = ${userId} AND c.restaurant_id = ${restaurantId}
         ORDER BY c.last_message_at DESC LIMIT ${limit}
       ` as any[];
     } else if (reviewed !== null) {
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
         SELECT c.*, u.name as user_name, u.email as user_email
         FROM chat_conversations c
         LEFT JOIN users u ON u.id = c.user_id
-        WHERE c.reviewed = ${reviewed === "true"}
+        WHERE c.reviewed = ${reviewed === "true"} AND c.restaurant_id = ${restaurantId}
         ORDER BY c.last_message_at DESC LIMIT ${limit}
       ` as any[];
     } else {
@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
         SELECT c.*, u.name as user_name, u.email as user_email
         FROM chat_conversations c
         LEFT JOIN users u ON u.id = c.user_id
+        WHERE c.restaurant_id = ${restaurantId}
         ORDER BY c.last_message_at DESC LIMIT ${limit}
       ` as any[];
     }
@@ -116,13 +117,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Conversation id required" }, { status: 400 });
     }
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     await sql`
       UPDATE chat_conversations
       SET reviewed = ${reviewed ?? true},
           reviewed_at = NOW(),
           review_notes = ${review_notes || null}
-      WHERE id = ${id}
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
     `;
 
     return NextResponse.json({ success: true });

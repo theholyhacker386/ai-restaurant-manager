@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 // GET - single receipt with all its items
 export async function GET(
@@ -7,10 +7,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
 
-    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id}`;
+    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     const receipt = receiptRows[0];
 
     if (!receipt) {
@@ -44,10 +44,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
 
-    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id}`;
+    const receiptRows = await sql`SELECT * FROM receipts WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     const receipt = receiptRows[0];
 
     if (!receipt) {
@@ -61,7 +61,7 @@ export async function DELETE(
     await sql`DELETE FROM ingredient_price_history WHERE receipt_id = ${id}`;
     await sql`DELETE FROM expenses WHERE source = 'receipt' AND source_transaction_id = ${id}`;
     await sql`DELETE FROM receipt_items WHERE receipt_id = ${id}`;
-    await sql`DELETE FROM receipts WHERE id = ${id}`;
+    await sql`DELETE FROM receipts WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

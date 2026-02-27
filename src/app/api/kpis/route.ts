@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -14,12 +14,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const revenueRows = await sql`
       SELECT COALESCE(SUM(net_revenue), 0) as total_revenue
       FROM daily_sales
       WHERE date >= ${startDate} AND date <= ${endDate}
+        AND restaurant_id = ${restaurantId}
     `;
 
     const cogsRows = await sql`
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
       JOIN expense_categories ec ON e.category_id = ec.id
       WHERE ec.type = 'cogs'
       AND e.date >= ${startDate} AND e.date <= ${endDate}
+      AND e.restaurant_id = ${restaurantId}
     `;
 
     const laborExpenseRows = await sql`
@@ -36,6 +38,7 @@ export async function GET(request: Request) {
       JOIN expense_categories ec ON e.category_id = ec.id
       WHERE ec.type = 'labor'
       AND e.date >= ${startDate} AND e.date <= ${endDate}
+      AND e.restaurant_id = ${restaurantId}
     `;
 
     const laborRows = await sql`
@@ -44,6 +47,7 @@ export async function GET(request: Request) {
         COALESCE(SUM(total_hours), 0) as total_hours
       FROM daily_labor
       WHERE date >= ${startDate} AND date <= ${endDate}
+        AND restaurant_id = ${restaurantId}
     `;
 
     const overheadRows = await sql`
@@ -53,6 +57,7 @@ export async function GET(request: Request) {
       WHERE ec.type NOT IN ('cogs', 'labor')
       AND ec.id NOT IN ('cat-sales-tax', 'cat-federal-tax')
       AND e.date >= ${startDate} AND e.date <= ${endDate}
+      AND e.restaurant_id = ${restaurantId}
     `;
 
     const revenue = (revenueRows[0] as any)?.total_revenue || 0;

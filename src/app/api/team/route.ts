@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { auth } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -20,11 +20,13 @@ export async function GET() {
       return NextResponse.json({ error: "Only the owner can manage the team" }, { status: 403 });
     }
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const users = await sql`
       SELECT id, email, name, role, pin, (pin_hash IS NOT NULL) as has_pin,
              setup_token, setup_token_expires, created_at
-      FROM users ORDER BY created_at ASC
+      FROM users
+      WHERE restaurant_id = ${restaurantId}
+      ORDER BY created_at ASC
     `;
 
     return NextResponse.json(users);
@@ -47,7 +49,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Only the owner can add team members" }, { status: 403 });
     }
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { name } = await req.json();
 
     if (!name || !name.trim()) {
@@ -65,8 +67,8 @@ export async function POST(req: Request) {
     const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
 
     await sql`
-      INSERT INTO users (id, email, name, password_hash, role, setup_token, setup_token_expires)
-      VALUES (${userId}, ${placeholderEmail}, ${name.trim()}, ${placeholderHash}, 'manager', ${setupToken}, ${expiresAt.toISOString()})
+      INSERT INTO users (id, email, name, password_hash, role, setup_token, setup_token_expires, restaurant_id)
+      VALUES (${userId}, ${placeholderEmail}, ${name.trim()}, ${placeholderHash}, 'manager', ${setupToken}, ${expiresAt.toISOString()}, ${restaurantId})
     `;
 
     return NextResponse.json({
@@ -92,7 +94,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Only the owner can edit team members" }, { status: 403 });
     }
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { userId, pin, removePin, regenerateLink } = await req.json();
 
     if (!userId) {
@@ -105,7 +107,7 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: "PIN must be 4-6 digits" }, { status: 400 });
       }
       // Check if any other user already has this PIN
-      const usersWithPins = await sql`SELECT id, pin_hash FROM users WHERE pin_hash IS NOT NULL AND id != ${userId}`;
+      const usersWithPins = await sql`SELECT id, pin_hash FROM users WHERE pin_hash IS NOT NULL AND id != ${userId} AND restaurant_id = ${restaurantId}`;
       for (const u of usersWithPins) {
         const match = await bcrypt.compare(pin, u.pin_hash);
         if (match) {
@@ -113,19 +115,19 @@ export async function PATCH(req: Request) {
         }
       }
       const pinHash = await bcrypt.hash(pin, 10);
-      await sql`UPDATE users SET pin = ${pin}, pin_hash = ${pinHash} WHERE id = ${userId}`;
+      await sql`UPDATE users SET pin = ${pin}, pin_hash = ${pinHash} WHERE id = ${userId} AND restaurant_id = ${restaurantId}`;
     }
 
     // Remove PIN
     if (removePin) {
-      await sql`UPDATE users SET pin = NULL, pin_hash = NULL WHERE id = ${userId}`;
+      await sql`UPDATE users SET pin = NULL, pin_hash = NULL WHERE id = ${userId} AND restaurant_id = ${restaurantId}`;
     }
 
     // Regenerate setup link
     if (regenerateLink) {
       const setupToken = crypto.randomBytes(16).toString("hex");
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      await sql`UPDATE users SET setup_token = ${setupToken}, setup_token_expires = ${expiresAt.toISOString()} WHERE id = ${userId}`;
+      await sql`UPDATE users SET setup_token = ${setupToken}, setup_token_expires = ${expiresAt.toISOString()} WHERE id = ${userId} AND restaurant_id = ${restaurantId}`;
       return NextResponse.json({ success: true, setupToken });
     }
 
@@ -155,8 +157,8 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "You can't remove yourself" }, { status: 400 });
     }
 
-    const sql = getDb();
-    await sql`DELETE FROM users WHERE id = ${userId}`;
+    const { sql, restaurantId } = await getTenantDb();
+    await sql`DELETE FROM users WHERE id = ${userId} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
@@ -22,6 +22,7 @@ export async function GET() {
         COALESCE(SUM(order_count), 0) as orders
       FROM daily_sales
       WHERE date >= ${rangeStart} AND date <= ${rangeEnd}
+        AND restaurant_id = ${restaurantId}
       GROUP BY SUBSTRING(date, 1, 7)` as Array<{ month: string; revenue: number; orders: number }>;
 
     // Batch query: labor by month
@@ -31,6 +32,7 @@ export async function GET() {
         COALESCE(SUM(total_hours), 0) as hours
       FROM daily_labor
       WHERE date >= ${rangeStart} AND date <= ${rangeEnd}
+        AND restaurant_id = ${restaurantId}
       GROUP BY SUBSTRING(date, 1, 7)` as Array<{ month: string; labor: number; hours: number }>;
 
     // Batch query: theoretical food cost by month
@@ -46,6 +48,7 @@ export async function GET() {
       FROM item_sales isales
       WHERE isales.date >= ${rangeStart} AND isales.date <= ${rangeEnd}
         AND isales.menu_item_id IS NOT NULL
+        AND isales.restaurant_id = ${restaurantId}
       GROUP BY SUBSTRING(isales.date, 1, 7)` as Array<{ month: string; cost: number }>;
 
     // Batch query: expenses by month and type
@@ -56,6 +59,7 @@ export async function GET() {
       JOIN expense_categories ec ON e.category_id = ec.id
       WHERE e.date >= ${rangeStart} AND e.date <= ${rangeEnd}
         AND ec.id NOT IN ('cat-sales-tax', 'cat-federal-tax')
+        AND e.restaurant_id = ${restaurantId}
       GROUP BY SUBSTRING(e.date, 1, 7), ec.type` as Array<{ month: string; type: string; total: number }>;
 
     // Index all batch results by month key

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 // PUT - update receipt items (for manual price/quantity corrections after scanning)
 export async function PUT(
@@ -7,7 +7,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
     const { items } = await request.json();
 
@@ -32,7 +32,7 @@ export async function PUT(
       FROM receipt_items WHERE receipt_id = ${id}` as Array<{ subtotal: number }>;
 
     const subtotal = Number(totals?.subtotal || 0);
-    await sql`UPDATE receipts SET subtotal = ${subtotal} WHERE id = ${id}`;
+    await sql`UPDATE receipts SET subtotal = ${subtotal} WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true, updated: items.length, subtotal });
   } catch (error: unknown) {

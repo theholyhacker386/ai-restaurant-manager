@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { getSettings } from "@/lib/settings";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function GET(request: Request) {
   try {
-    const sql = getDb();
-    const settings = await getSettings();
+    const { sql, restaurantId } = await getTenantDb();
+    const settings = await getSettings(restaurantId);
 
     const { searchParams } = new URL(request.url);
     const offsetWeeks = parseInt(searchParams.get("weekOffset") || "0", 10);
@@ -21,6 +21,7 @@ export async function GET(request: Request) {
       FROM hourly_sales
       WHERE date >= (CURRENT_DATE - INTERVAL '90 days')::TEXT
         AND net_revenue > 0
+        AND restaurant_id = ${restaurantId}
       GROUP BY dow, hour
       ORDER BY dow, hour
     ` as any[];
@@ -53,6 +54,7 @@ export async function GET(request: Request) {
         ds.net_revenue as net_sales
       FROM daily_sales ds
       WHERE ds.date >= (CURRENT_DATE - INTERVAL '90 days')::TEXT
+        AND ds.restaurant_id = ${restaurantId}
       ORDER BY ds.date
     ` as any[];
 
@@ -108,6 +110,7 @@ export async function GET(request: Request) {
     const events = await sql`
       SELECT * FROM forecast_events
       WHERE date >= ${startStr} AND date <= ${endStr}
+        AND restaurant_id = ${restaurantId}
       ORDER BY date
     ` as any[];
 

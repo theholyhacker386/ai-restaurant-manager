@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // POST — approve a menu item's current food cost
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { itemId, foodCostPct } = await request.json();
 
     if (!itemId || foodCostPct === undefined) {
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     await sql`
       UPDATE menu_items
       SET approved_food_cost = ${foodCostPct}
-      WHERE id = ${itemId}
+      WHERE id = ${itemId} AND restaurant_id = ${restaurantId}
     `;
 
     return NextResponse.json({ success: true });
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 // DELETE — remove approval (put it back in review)
 export async function DELETE(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { itemId } = await request.json();
 
     if (!itemId) {
@@ -42,7 +42,7 @@ export async function DELETE(request: NextRequest) {
     await sql`
       UPDATE menu_items
       SET approved_food_cost = NULL
-      WHERE id = ${itemId}
+      WHERE id = ${itemId} AND restaurant_id = ${restaurantId}
     `;
 
     return NextResponse.json({ success: true });

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 import { convertToBaseUnit } from "@/lib/unit-conversions";
 
@@ -11,7 +11,7 @@ import { convertToBaseUnit } from "@/lib/unit-conversions";
  */
 export async function GET(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(req.url);
     const listId = searchParams.get("listId");
     const pending = searchParams.get("pending");
@@ -47,6 +47,7 @@ export async function GET(req: Request) {
         WHERE sl.status != 'completed'
           AND sl.status != 'closed'
           AND sli.checked = false
+          AND sl.restaurant_id = ${restaurantId}
         ORDER BY sli.supplier, sli.ingredient_name
       `) as any[];
 
@@ -79,7 +80,7 @@ export async function GET(req: Request) {
     // Get list info
     const lists = (await sql`
       SELECT id, name, based_on_days, multiplier, total_estimated_cost, status, notes, created_at
-      FROM shopping_lists WHERE id = ${listId}
+      FROM shopping_lists WHERE id = ${listId} AND restaurant_id = ${restaurantId}
     `) as any[];
 
     if (lists.length === 0) {
@@ -170,7 +171,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await req.json();
     const { listId, receivedBy, notes, items } = body;
 
@@ -181,8 +182,8 @@ export async function POST(req: Request) {
     // Create order receipt record
     const receiptId = uuid();
     await sql`
-      INSERT INTO order_receipts (id, shopping_list_id, received_by, status, notes, confirmed_at)
-      VALUES (${receiptId}, ${listId}, ${receivedBy || null}, 'confirmed', ${notes || null}, NOW())
+      INSERT INTO order_receipts (id, restaurant_id, shopping_list_id, received_by, status, notes, confirmed_at)
+      VALUES (${receiptId}, ${restaurantId}, ${listId}, ${receivedBy || null}, 'confirmed', ${notes || null}, NOW())
     `;
 
     let stockUpdates = 0;
@@ -271,8 +272,8 @@ export async function POST(req: Request) {
         if (item.ingredient_id) {
           const flagId = uuid();
           await sql`
-            INSERT INTO reorder_flags (id, ingredient_id, source_shopping_list_id, reason)
-            VALUES (${flagId}, ${item.ingredient_id}, ${listId}, 'out_of_stock')
+            INSERT INTO reorder_flags (id, restaurant_id, ingredient_id, source_shopping_list_id, reason)
+            VALUES (${flagId}, ${restaurantId}, ${item.ingredient_id}, ${listId}, 'out_of_stock')
             ON CONFLICT DO NOTHING
           `;
           reorderCount++;
@@ -305,7 +306,7 @@ export async function POST(req: Request) {
  */
 export async function PATCH(req: Request) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { listId } = await req.json();
 
     if (!listId) {
@@ -340,8 +341,8 @@ export async function PATCH(req: Request) {
         `) as any[];
         if (existing.length === 0) {
           await sql`
-            INSERT INTO reorder_flags (id, ingredient_id, source_shopping_list_id, reason)
-            VALUES (${flagId}, ${item.ingredient_id}, ${listId}, 'did_not_arrive')
+            INSERT INTO reorder_flags (id, restaurant_id, ingredient_id, source_shopping_list_id, reason)
+            VALUES (${flagId}, ${restaurantId}, ${item.ingredient_id}, ${listId}, 'did_not_arrive')
           `;
           flagCount++;
         }
@@ -354,7 +355,7 @@ export async function PATCH(req: Request) {
 
     // Mark the shopping list as closed
     await sql`
-      UPDATE shopping_lists SET status = 'closed' WHERE id = ${listId}
+      UPDATE shopping_lists SET status = 'closed' WHERE id = ${listId} AND restaurant_id = ${restaurantId}
     `;
 
     return NextResponse.json({

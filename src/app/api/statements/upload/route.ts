@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { processAllQueued } from "@/lib/process-statement";
 import { v4 as uuid } from "uuid";
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const savedStatements: { id: string; file_name: string; status: string }[] = [];
     const errors: { file_name: string; error: string }[] = [];
@@ -52,8 +52,8 @@ export async function POST(request: NextRequest) {
 
       // Save immediately with status "queued" — no AI processing yet
       await sql`
-        INSERT INTO bank_statements (id, file_name, status, pdf_data)
-        VALUES (${statementId}, ${file.name}, 'queued', ${base64})
+        INSERT INTO bank_statements (id, file_name, status, pdf_data, restaurant_id)
+        VALUES (${statementId}, ${file.name}, 'queued', ${base64}, ${restaurantId})
       `;
 
       savedStatements.push({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 // GET - price history for one ingredient
 export async function GET(
@@ -7,10 +7,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { id } = await params;
 
-    const rows = await sql`SELECT * FROM ingredients WHERE id = ${id}`;
+    const rows = await sql`SELECT * FROM ingredients WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     const ingredient = rows[0];
 
     if (!ingredient) {

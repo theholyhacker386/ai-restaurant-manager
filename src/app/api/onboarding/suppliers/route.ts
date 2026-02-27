@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { auth } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Resolve the restaurant ID for the current user.
+ */
+async function getRestaurantIdFromSession(): Promise<string | null> {
+  const session = await auth();
+  if (session?.user?.id) {
+    return (session.user as any).restaurantId || null;
+  }
+  return null;
+}
 
 /**
  * POST — bulk-save suppliers during onboarding.
@@ -17,6 +29,7 @@ export async function POST(request: Request) {
     }
 
     const sql = getDb();
+    const restaurantId = await getRestaurantIdFromSession();
     let saved = 0;
 
     for (const name of suppliers) {
@@ -26,8 +39,8 @@ export async function POST(request: Request) {
       try {
         const id = `sup_${uuid().split("-")[0]}`;
         await sql`
-          INSERT INTO suppliers (id, name)
-          VALUES (${id}, ${trimmed})
+          INSERT INTO suppliers (id, name, restaurant_id)
+          VALUES (${id}, ${trimmed}, ${restaurantId})
           ON CONFLICT (name) DO NOTHING
         `;
         saved++;
@@ -52,15 +65,23 @@ export async function POST(request: Request) {
 export async function GET() {
   try {
     const sql = getDb();
+    const restaurantId = await getRestaurantIdFromSession();
 
     // Get from dedicated suppliers table
-    const tableSuppliers = await sql`SELECT name FROM suppliers ORDER BY name`;
+    const tableSuppliers = restaurantId
+      ? await sql`SELECT name FROM suppliers WHERE restaurant_id = ${restaurantId} ORDER BY name`
+      : await sql`SELECT name FROM suppliers ORDER BY name`;
 
     // Get from ingredients table
-    const ingredientSuppliers = await sql`
-      SELECT DISTINCT supplier as name FROM ingredients
-      WHERE supplier IS NOT NULL AND supplier != ''
-    `;
+    const ingredientSuppliers = restaurantId
+      ? await sql`
+          SELECT DISTINCT supplier as name FROM ingredients
+          WHERE supplier IS NOT NULL AND supplier != '' AND restaurant_id = ${restaurantId}
+        `
+      : await sql`
+          SELECT DISTINCT supplier as name FROM ingredients
+          WHERE supplier IS NOT NULL AND supplier != ''
+        `;
 
     // Merge and deduplicate
     const allNames = new Set<string>();
@@ -68,8 +89,8 @@ export async function GET() {
       allNames.add(row.name);
     }
 
-    const suppliers = Array.from(allNames).sort();
-    return NextResponse.json({ suppliers });
+    const supplierList = Array.from(allNames).sort();
+    return NextResponse.json({ suppliers: supplierList });
   } catch (error: any) {
     console.error("Error fetching suppliers:", error);
     return NextResponse.json(

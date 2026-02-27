@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { extractReceiptData } from "@/lib/openai";
 import { v4 as uuid } from "uuid";
 
@@ -43,11 +43,11 @@ export async function POST(request: NextRequest) {
     );
 
     // Save receipt to database (store first image as the primary)
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const receiptId = uuid();
 
-    await sql`INSERT INTO receipts (id, supplier, receipt_date, subtotal, tax, total, image_data, image_mime_type, status)
-       VALUES (${receiptId}, ${extracted.supplier || null}, ${extracted.receipt_date || null}, ${extracted.subtotal || 0}, ${extracted.tax || 0}, ${extracted.total || 0}, ${base64Images[0]}, ${mimeTypes[0]}, 'pending')`;
+    await sql`INSERT INTO receipts (id, supplier, receipt_date, subtotal, tax, total, image_data, image_mime_type, status, restaurant_id)
+       VALUES (${receiptId}, ${extracted.supplier || null}, ${extracted.receipt_date || null}, ${extracted.subtotal || 0}, ${extracted.tax || 0}, ${extracted.total || 0}, ${base64Images[0]}, ${mimeTypes[0]}, 'pending', ${restaurantId})`;
 
     // Save each extracted item
     const items: Array<{

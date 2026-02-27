@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function POST(request: Request) {
   const { menuItemId, quantity } = await request.json();
@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const recipe = await sql`
       SELECT
@@ -21,6 +21,7 @@ export async function POST(request: Request) {
       JOIN ingredients i ON r.ingredient_id = i.id
       WHERE r.menu_item_id = ${menuItemId}
       AND i.ingredient_type = 'food'
+      AND i.restaurant_id = ${restaurantId}
     ` as any[];
 
     if (recipe.length === 0) {
@@ -63,7 +64,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Missing startDate or endDate" }, { status: 400 });
     }
 
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const usage = await sql`
       SELECT
@@ -77,6 +78,7 @@ export async function GET(request: Request) {
       FROM inventory_usage iu
       JOIN ingredients i ON iu.ingredient_id = i.id
       WHERE iu.date >= ${startDate}::date AND iu.date <= ${endDate}::date
+        AND iu.restaurant_id = ${restaurantId}
       GROUP BY i.id, i.name, iu.date, iu.unit, i.package_size, i.package_unit
       ORDER BY iu.date DESC, i.name
     `;

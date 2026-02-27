@@ -1,14 +1,17 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
 function SetupForm() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const token = searchParams.get("token");
+  const invite = searchParams.get("invite");
 
   const [name, setName] = useState("");
+  const [restaurantName, setRestaurantName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -16,15 +19,17 @@ function SetupForm() {
   const [done, setDone] = useState(false);
   const [invalid, setInvalid] = useState(false);
   const [userRole, setUserRole] = useState("");
+  const [isInvite, setIsInvite] = useState(false);
 
   useEffect(() => {
-    if (!token) {
+    if (!token && !invite) {
       setInvalid(true);
       setLoading(false);
       return;
     }
 
-    fetch(`/api/auth/setup?token=${token}`)
+    const param = invite ? `invite=${invite}` : `token=${token}`;
+    fetch(`/api/auth/setup?${param}`)
       .then((res) => {
         if (!res.ok) {
           setInvalid(true);
@@ -34,11 +39,13 @@ function SetupForm() {
       })
       .then((data) => {
         if (data?.name) setName(data.name);
-          if (data?.role) setUserRole(data.role);
+        if (data?.role) setUserRole(data.role);
+        if (data?.restaurantName) setRestaurantName(data.restaurantName);
+        if (data?.type === "invite") setIsInvite(true);
       })
       .catch(() => setInvalid(true))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, invite]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,10 +53,14 @@ function SetupForm() {
     setSaving(true);
 
     try {
+      const body = invite
+        ? { invite, pin }
+        : { token, pin };
+
       const res = await fetch("/api/auth/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, pin }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -61,6 +72,13 @@ function SetupForm() {
       }
 
       if (data.role) setUserRole(data.role);
+
+      // For invite-based setup, redirect directly to login (then onboarding)
+      if (data.redirectTo) {
+        router.push("/login");
+        return;
+      }
+
       setDone(true);
     } catch {
       setError("Something went wrong. Please try again.");
@@ -79,7 +97,7 @@ function SetupForm() {
   if (invalid) {
     return (
       <div className="text-center space-y-3">
-        <div className="text-4xl">🔗</div>
+        <div className="text-4xl">&#128279;</div>
         <h2 className="text-lg font-semibold text-porch-brown">Invalid Link</h2>
         <p className="text-sm text-porch-brown-light">
           This setup link is invalid or has already been used. Ask your manager for a new one.
@@ -99,7 +117,7 @@ function SetupForm() {
             : "Your PIN is ready. Use it to log in from now on."}
         </p>
         <Link
-          href={userRole === "owner" ? "/login" : "/login"}
+          href="/login"
           className="inline-block mt-2 bg-porch-brown text-white px-6 py-2.5 rounded-lg font-medium hover:bg-porch-brown-light transition-colors"
         >
           {userRole === "owner" ? "Continue Setup" : "Go to Login"}
@@ -114,6 +132,11 @@ function SetupForm() {
         <h2 className="text-lg font-semibold text-porch-brown">
           Welcome, {name}!
         </h2>
+        {isInvite && restaurantName && (
+          <p className="text-sm text-porch-brown-light mt-1">
+            Setting up <span className="font-medium">{restaurantName}</span>
+          </p>
+        )}
         <p className="text-sm text-porch-brown-light mt-1">
           Pick a PIN to log in quickly each day.
         </p>
@@ -144,7 +167,7 @@ function SetupForm() {
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
             className="w-full px-3 py-3 border border-porch-cream-dark rounded-lg bg-porch-warm-white text-porch-brown text-center text-3xl tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-porch-brown focus:border-transparent"
-            placeholder="• • • •"
+            placeholder="&#8226; &#8226; &#8226; &#8226;"
           />
           <p className="text-[11px] text-porch-brown-light text-center mt-1.5">
             Something easy to remember, like a birthday or lucky number

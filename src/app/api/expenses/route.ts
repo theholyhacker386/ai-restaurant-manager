@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
 // GET - list expenses with optional date range
 export async function GET(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
         FROM expenses e
         LEFT JOIN expense_categories ec ON e.category_id = ec.id
         WHERE e.date >= ${startDate} AND e.date <= ${endDate} AND e.category_id = ${categoryId}
+          AND e.restaurant_id = ${restaurantId}
         ORDER BY e.date DESC, e.created_at DESC`;
     } else if (startDate && endDate && categoryType) {
       expenses = await sql`
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
         FROM expenses e
         JOIN expense_categories ec ON e.category_id = ec.id
         WHERE e.date >= ${startDate} AND e.date <= ${endDate} AND ec.type = ${categoryType}
+          AND e.restaurant_id = ${restaurantId}
         ORDER BY e.date DESC, e.created_at DESC`;
     } else if (startDate && endDate) {
       expenses = await sql`
@@ -33,12 +35,14 @@ export async function GET(request: NextRequest) {
         FROM expenses e
         LEFT JOIN expense_categories ec ON e.category_id = ec.id
         WHERE e.date >= ${startDate} AND e.date <= ${endDate}
+          AND e.restaurant_id = ${restaurantId}
         ORDER BY e.date DESC, e.created_at DESC`;
     } else {
       expenses = await sql`
         SELECT e.*, ec.name as category_name, ec.type as category_type
         FROM expenses e
         LEFT JOIN expense_categories ec ON e.category_id = ec.id
+        WHERE e.restaurant_id = ${restaurantId}
         ORDER BY e.date DESC, e.created_at DESC`;
     }
 
@@ -51,12 +55,14 @@ export async function GET(request: NextRequest) {
         FROM expenses e
         LEFT JOIN expense_categories ec ON e.category_id = ec.id
         WHERE e.date >= ${startDate} AND e.date <= ${endDate}
+          AND e.restaurant_id = ${restaurantId}
         GROUP BY ec.type`;
     } else {
       totalsByType = await sql`
         SELECT COALESCE(ec.type, 'uncategorized') as type, COALESCE(SUM(e.amount), 0) as total
         FROM expenses e
         LEFT JOIN expense_categories ec ON e.category_id = ec.id
+        WHERE e.restaurant_id = ${restaurantId}
         GROUP BY ec.type`;
     }
 
@@ -73,7 +79,7 @@ export async function GET(request: NextRequest) {
 // POST - create a new expense
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     const { category_id, description, amount, date, is_recurring, recurring_frequency, notes } = body;
@@ -87,8 +93,8 @@ export async function POST(request: NextRequest) {
 
     const id = uuid();
 
-    await sql`INSERT INTO expenses (id, category_id, description, amount, date, is_recurring, recurring_frequency, source, notes)
-       VALUES (${id}, ${category_id || null}, ${description}, ${amount}, ${date}, ${is_recurring ? true : false}, ${recurring_frequency || null}, 'manual', ${notes || null})`;
+    await sql`INSERT INTO expenses (id, category_id, description, amount, date, is_recurring, recurring_frequency, source, notes, restaurant_id)
+       VALUES (${id}, ${category_id || null}, ${description}, ${amount}, ${date}, ${is_recurring ? true : false}, ${recurring_frequency || null}, 'manual', ${notes || null}, ${restaurantId})`;
 
     return NextResponse.json({ id, description, amount, date });
   } catch (error: unknown) {
@@ -103,7 +109,7 @@ export async function POST(request: NextRequest) {
 // DELETE - remove an expense
 export async function DELETE(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -114,7 +120,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await sql`DELETE FROM expenses WHERE id = ${id}`;
+    await sql`DELETE FROM expenses WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

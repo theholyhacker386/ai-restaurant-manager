@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const statements = await sql`
       SELECT id, file_name, bank_name, statement_date, period_start, period_end,
              transaction_count, status, error_message, created_at
       FROM bank_statements
+      WHERE restaurant_id = ${restaurantId}
       ORDER BY created_at DESC
       LIMIT 50
     `;

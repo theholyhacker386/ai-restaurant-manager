@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
 // GET recipes for a menu item
 export async function GET(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(request.url);
     const menuItemId = searchParams.get("menu_item_id");
 
@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
       FROM recipes r
       JOIN ingredients i ON r.ingredient_id = i.id
       WHERE r.menu_item_id = ${menuItemId}
+        AND r.restaurant_id = ${restaurantId}
       ORDER BY i.name
     `;
 
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
 // POST - add an ingredient to a menu item's recipe
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     const { menu_item_id, ingredient_id, quantity, quantity_unit, notes } = body;
@@ -79,8 +80,8 @@ export async function POST(request: NextRequest) {
 
     const id = uuid();
 
-    await sql`INSERT INTO recipes (id, menu_item_id, ingredient_id, quantity, quantity_unit, notes)
-       VALUES (${id}, ${menu_item_id}, ${ingredient_id}, ${quantity}, ${quantity_unit}, ${notes || null})`;
+    await sql`INSERT INTO recipes (id, menu_item_id, ingredient_id, quantity, quantity_unit, notes, restaurant_id)
+       VALUES (${id}, ${menu_item_id}, ${ingredient_id}, ${quantity}, ${quantity_unit}, ${notes || null}, ${restaurantId})`;
 
     return NextResponse.json({ id, menu_item_id, ingredient_id, quantity });
   } catch (error: any) {
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
 // PATCH - update a recipe ingredient's quantity and/or swap ingredient
 export async function PATCH(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
     const { id, quantity, quantity_unit, ingredient_id } = body;
@@ -107,7 +108,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const existing = await sql`SELECT id FROM recipes WHERE id = ${id}`;
+    const existing = await sql`SELECT id FROM recipes WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     if (existing.length === 0) {
       return NextResponse.json(
         { error: "Recipe entry not found" },
@@ -124,7 +125,7 @@ export async function PATCH(request: NextRequest) {
           { status: 404 }
         );
       }
-      await sql`UPDATE recipes SET ingredient_id = ${ingredient_id}, quantity_unit = ${ingredientRows[0].unit} WHERE id = ${id}`;
+      await sql`UPDATE recipes SET ingredient_id = ${ingredient_id}, quantity_unit = ${ingredientRows[0].unit} WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     }
 
     // Update quantity if provided
@@ -135,12 +136,12 @@ export async function PATCH(request: NextRequest) {
           { status: 400 }
         );
       }
-      await sql`UPDATE recipes SET quantity = ${quantity} WHERE id = ${id}`;
+      await sql`UPDATE recipes SET quantity = ${quantity} WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     }
 
     // Update quantity_unit if provided
     if (quantity_unit) {
-      await sql`UPDATE recipes SET quantity_unit = ${quantity_unit} WHERE id = ${id}`;
+      await sql`UPDATE recipes SET quantity_unit = ${quantity_unit} WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     }
 
     return NextResponse.json({ success: true, id });
@@ -156,7 +157,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE - remove an ingredient from a recipe
 export async function DELETE(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(request.url);
     const recipeId = searchParams.get("id");
 
@@ -167,7 +168,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await sql`DELETE FROM recipes WHERE id = ${recipeId}`;
+    await sql`DELETE FROM recipes WHERE id = ${recipeId} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

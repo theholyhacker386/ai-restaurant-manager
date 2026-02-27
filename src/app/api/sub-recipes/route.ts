@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
 // GET all sub-recipes with their components and calculated costs
 export async function GET() {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
 
     const subRecipes = await sql`SELECT id, name, unit, cost_per_unit, notes
          FROM ingredients
          WHERE ingredient_type = 'sub_recipe'
+           AND restaurant_id = ${restaurantId}
          ORDER BY name` as any[];
 
     const enriched = [];
@@ -57,7 +58,7 @@ export async function GET() {
 // POST - create a new sub-recipe
 export async function POST(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
     const { name, components } = body;
 
@@ -70,12 +71,12 @@ export async function POST(request: NextRequest) {
 
     const ingredientId = `ing-sr-${uuid().substring(0, 8)}`;
 
-    await sql`INSERT INTO ingredients (id, name, unit, cost_per_unit, ingredient_type)
-       VALUES (${ingredientId}, ${name}, 'serving', 0, 'sub_recipe')`;
+    await sql`INSERT INTO ingredients (id, name, unit, cost_per_unit, ingredient_type, restaurant_id)
+       VALUES (${ingredientId}, ${name}, 'serving', 0, 'sub_recipe', ${restaurantId})`;
 
     for (const comp of components) {
-      await sql`INSERT INTO sub_recipe_ingredients (id, parent_ingredient_id, child_ingredient_id, quantity, quantity_unit)
-         VALUES (${`sr-${uuid().substring(0, 8)}`}, ${ingredientId}, ${comp.ingredient_id}, ${comp.quantity}, ${comp.quantity_unit})`;
+      await sql`INSERT INTO sub_recipe_ingredients (id, parent_ingredient_id, child_ingredient_id, quantity, quantity_unit, restaurant_id)
+         VALUES (${`sr-${uuid().substring(0, 8)}`}, ${ingredientId}, ${comp.ingredient_id}, ${comp.quantity}, ${comp.quantity_unit}, ${restaurantId})`;
     }
 
     await recalcSubRecipeCost(sql, ingredientId);
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
 // PATCH - update a sub-recipe's name or components
 export async function PATCH(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
     const { id, name, components } = body;
 
@@ -111,15 +112,15 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (name) {
-      await sql`UPDATE ingredients SET name = ${name} WHERE id = ${id}`;
+      await sql`UPDATE ingredients SET name = ${name} WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
     }
 
     if (components) {
-      await sql`DELETE FROM sub_recipe_ingredients WHERE parent_ingredient_id = ${id}`;
+      await sql`DELETE FROM sub_recipe_ingredients WHERE parent_ingredient_id = ${id} AND restaurant_id = ${restaurantId}`;
 
       for (const comp of components) {
-        await sql`INSERT INTO sub_recipe_ingredients (id, parent_ingredient_id, child_ingredient_id, quantity, quantity_unit)
-           VALUES (${`sr-${uuid().substring(0, 8)}`}, ${id}, ${comp.ingredient_id}, ${comp.quantity}, ${comp.quantity_unit})`;
+        await sql`INSERT INTO sub_recipe_ingredients (id, parent_ingredient_id, child_ingredient_id, quantity, quantity_unit, restaurant_id)
+           VALUES (${`sr-${uuid().substring(0, 8)}`}, ${id}, ${comp.ingredient_id}, ${comp.quantity}, ${comp.quantity_unit}, ${restaurantId})`;
       }
 
       await recalcSubRecipeCost(sql, id);
@@ -143,7 +144,7 @@ export async function PATCH(request: NextRequest) {
 // DELETE - remove a sub-recipe
 export async function DELETE(request: NextRequest) {
   try {
-    const sql = getDb();
+    const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -154,7 +155,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const usage = await sql`SELECT COUNT(*) as cnt FROM recipes WHERE ingredient_id = ${id}`;
+    const usage = await sql`SELECT COUNT(*) as cnt FROM recipes WHERE ingredient_id = ${id} AND restaurant_id = ${restaurantId}`;
 
     if ((usage[0] as any)?.cnt > 0) {
       return NextResponse.json(
@@ -163,8 +164,8 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await sql`DELETE FROM sub_recipe_ingredients WHERE parent_ingredient_id = ${id}`;
-    await sql`DELETE FROM ingredients WHERE id = ${id}`;
+    await sql`DELETE FROM sub_recipe_ingredients WHERE parent_ingredient_id = ${id} AND restaurant_id = ${restaurantId}`;
+    await sql`DELETE FROM ingredients WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
