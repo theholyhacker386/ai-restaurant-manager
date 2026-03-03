@@ -13,31 +13,45 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        try {
+          console.log("[AUTH] credentials provider called, email:", credentials?.email);
+          if (!credentials?.email || !credentials?.password) {
+            console.log("[AUTH] missing email or password");
+            return null;
+          }
 
-        const sql = neon(process.env.NEON_DATABASE_URL!);
-        const email = credentials.email as string;
-        const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin FROM users WHERE email = ${email}`;
+          const sql = neon(process.env.NEON_DATABASE_URL!);
+          const email = credentials.email as string;
+          console.log("[AUTH] querying user:", email);
+          const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin FROM users WHERE email = ${email}`;
 
-        if (rows.length === 0) return null;
+          console.log("[AUTH] rows found:", rows.length);
+          if (rows.length === 0) return null;
 
-        const user = rows[0];
-        const passwordMatch = await bcrypt.compare(
-          credentials.password as string,
-          user.password_hash
-        );
+          const user = rows[0];
+          const passwordMatch = await bcrypt.compare(
+            credentials.password as string,
+            user.password_hash
+          );
 
-        if (!passwordMatch) return null;
+          console.log("[AUTH] password match:", passwordMatch);
+          if (!passwordMatch) return null;
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role || "manager",
-          onboardingCompleted: user.onboarding_completed ?? false,
-          restaurantId: user.restaurant_id || null,
-          isPlatformAdmin: user.is_platform_admin ?? false,
-        };
+          const result = {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role || "manager",
+            onboardingCompleted: user.onboarding_completed ?? false,
+            restaurantId: user.restaurant_id || null,
+            isPlatformAdmin: user.is_platform_admin ?? false,
+          };
+          console.log("[AUTH] returning user:", JSON.stringify(result));
+          return result;
+        } catch (err) {
+          console.error("[AUTH] authorize error:", err);
+          return null;
+        }
       },
     }),
     // PIN-only login

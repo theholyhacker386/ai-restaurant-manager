@@ -1,11 +1,9 @@
 "use client";
 
-import { signIn } from "next-auth/react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { loginWithCredentials, loginWithPin } from "./actions";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [mode, setMode] = useState<"pin" | "email">("pin");
   const [pin, setPin] = useState("");
   const [email, setEmail] = useState("");
@@ -19,17 +17,15 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const result = await signIn("pin", {
-      pin,
-      redirect: false,
-    });
-
-    if (result?.error) {
-      setError("Invalid PIN. Please try again.");
-      setLoading(false);
-    } else {
-      router.push("/");
-      router.refresh();
+    try {
+      const result = await loginWithPin(pin);
+      if (result?.error) {
+        setError(result.error);
+        setLoading(false);
+      }
+      // If no error, the server action redirects automatically
+    } catch {
+      // Redirect errors are handled by Next.js — this is expected on success
     }
   }
 
@@ -38,18 +34,15 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
-
-    if (result?.error) {
-      setError("Invalid username or password. Please try again.");
-      setLoading(false);
-    } else {
-      router.push("/");
-      router.refresh();
+    try {
+      const result = await loginWithCredentials(email, password);
+      if (result?.error) {
+        setError(result.error);
+        setLoading(false);
+      }
+      // If no error, the server action redirects automatically
+    } catch {
+      // Redirect errors are handled by Next.js — this is expected on success
     }
   }
 
@@ -132,18 +125,18 @@ export default function LoginPage() {
                   htmlFor="email"
                   className="block text-sm font-medium text-porch-brown-light mb-1"
                 >
-                  Username
+                  Email
                 </label>
                 <input
                   id="email"
-                  type="text"
+                  type="email"
                   required
                   autoCapitalize="none"
                   autoCorrect="off"
                   value={email}
                   onChange={(e) => setEmail(e.target.value.toLowerCase().trim())}
                   className="w-full px-3 py-2 border border-porch-cream-dark rounded-lg bg-porch-warm-white text-porch-brown focus:outline-none focus:ring-2 focus:ring-porch-brown focus:border-transparent"
-                  placeholder="Your name or email"
+                  placeholder="your@email.com"
                 />
               </div>
 
