@@ -23,7 +23,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const sql = neon(process.env.NEON_DATABASE_URL!);
           const email = credentials.email as string;
           console.log("[AUTH] querying user:", email);
-          const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin FROM users WHERE email = ${email}`;
+          const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin, email_verified FROM users WHERE email = ${email}`;
 
           console.log("[AUTH] rows found:", rows.length);
           if (rows.length === 0) return null;

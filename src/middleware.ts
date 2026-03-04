@@ -16,7 +16,7 @@ export default auth((req) => {
   }
 
   // Public pages that don't require login
-  const publicPages = ["/login", "/setup"];
+  const publicPages = ["/login", "/setup", "/signup", "/verify"];
   const isPublicPage = publicPages.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   // Onboarding page — requires login but NOT completed onboarding

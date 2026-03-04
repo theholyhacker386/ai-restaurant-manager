@@ -9,7 +9,7 @@ import HamburgerMenu from "@/components/HamburgerMenu";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const publicPages = ["/login", "/setup"];
+  const publicPages = ["/login", "/setup", "/signup", "/verify"];
   const isPublicPage = publicPages.some((p) => pathname === p || pathname.startsWith(p + "/"));
   const isOnboardingPage = pathname === "/onboarding" || pathname.startsWith("/onboarding/");
 
