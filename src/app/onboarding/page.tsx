@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -62,13 +63,20 @@ const CHECKLIST_OPTIONAL = [
 
 /* ── Data Tag Parsing ──────────────────────────────────── */
 
-function parseDataTags(text: string, session: SessionData): { cleanText: string; updatedSession: SessionData } {
+function parseDataTags(text: string, session: SessionData): { cleanText: string; updatedSession: SessionData; email?: string } {
   const updated = { ...session };
+  let email: string | undefined;
 
   // Progress
   const progressMatch = text.match(/\[PROGRESS:(\d+)\]/);
   if (progressMatch) {
     updated.progress = parseInt(progressMatch[1]);
+  }
+
+  // Email
+  const emailMatch = text.match(/\[SET_EMAIL:"([^"]+)"\]/);
+  if (emailMatch) {
+    email = emailMatch[1];
   }
 
   // Business info
@@ -170,6 +178,7 @@ function parseDataTags(text: string, session: SessionData): { cleanText: string;
   // Clean text — strip all data tags so user doesn't see them
   const cleanText = text
     .replace(/\[PROGRESS:\d+\]/g, "")
+    .replace(/\[SET_EMAIL:"[^"]*"\]/g, "")
     .replace(/\[BUSINESS_INFO:\{.*?\}]/g, "")
     .replace(/\[ADD_SUPPLIERS:\[.*?\]]/g, "")
     .replace(/\[ADD_MENU_ITEMS:\[[\s\S]*?\]]/g, "")
@@ -182,7 +191,7 @@ function parseDataTags(text: string, session: SessionData): { cleanText: string;
     .replace(/\[EXPENSES:\[[\s\S]*?\]]/g, "")
     .trim();
 
-  return { cleanText, updatedSession: updated };
+  return { cleanText, updatedSession: updated, email };
 }
 
 /* ── Chat Component ────────────────────────────────────── */
@@ -202,6 +211,11 @@ function OnboardingChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionData, setSessionData] = useState<SessionData>(INITIAL_SESSION);
   const [conversationHistory, setConversationHistory] = useState<{ role: string; content: string }[]>([]);
+
+  // Anonymous / frictionless onboarding state
+  const [tempSessionId, setTempSessionId] = useState("");
+  const [autoLoginToken, setAutoLoginToken] = useState("");
+  const [isAnonymous, setIsAnonymous] = useState(false);
 
   // UI state
   const [input, setInput] = useState("");
@@ -231,10 +245,18 @@ function OnboardingChat() {
 
   async function initSession() {
     try {
+      // Check for existing temp session in localStorage (anonymous returning user)
+      const storedTempId = typeof window !== "undefined" ? localStorage.getItem("onboarding_temp_session") : null;
+
       // Both flows (token and logged-in) use the same GET endpoint
-      const url = token
+      let url = token
         ? `/api/onboarding/complete?token=${token}`
         : "/api/onboarding/complete";
+
+      // If we have a stored temp session, try to load it
+      if (storedTempId && !token) {
+        url = `/api/onboarding/complete?tempSessionId=${storedTempId}`;
+      }
 
       const res = await fetch(url);
 
@@ -242,10 +264,11 @@ function OnboardingChat() {
         if (token) {
           setErrorMsg("This setup link is invalid or has expired. Ask your manager for a new one.");
           setPhase("error");
-        } else {
-          // Not logged in and no token — shouldn't happen (middleware would redirect)
-          setPhase("checklist");
+          return;
         }
+        // Not logged in and no token — start as anonymous
+        startAnonymousSession(storedTempId);
+        setPhase("checklist");
         return;
       }
 
@@ -255,14 +278,33 @@ function OnboardingChat() {
 
       if (data.conversationHistory?.length > 0) {
         // Returning user — restore session and go straight to chat
+        if (storedTempId && !data.userId) {
+          setTempSessionId(storedTempId);
+          setIsAnonymous(true);
+        }
         restoreSession(data);
         setPhase("chat");
         return;
       }
 
+      // If no userId from server (not logged in), set up anonymous
+      if (!data.userId) {
+        startAnonymousSession(storedTempId);
+      }
+
       setPhase("checklist");
     } catch {
+      startAnonymousSession(null);
       setPhase("checklist");
+    }
+  }
+
+  function startAnonymousSession(existingId: string | null) {
+    const id = existingId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+    setTempSessionId(id);
+    setIsAnonymous(true);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("onboarding_temp_session", id);
     }
   }
 
@@ -374,7 +416,7 @@ function OnboardingChat() {
 
       const data = await res.json();
       if (data.reply) {
-        const { cleanText, updatedSession } = parseDataTags(data.reply, sessionData);
+        const { cleanText, updatedSession, email } = parseDataTags(data.reply, sessionData);
 
         const aiMsg: Message = {
           id: generateId(),
@@ -391,6 +433,11 @@ function OnboardingChat() {
         // Save session to database
         saveSession(updatedSession, newHistory);
 
+        // Handle email — silently create account
+        if (email && isAnonymous) {
+          createAccountSilently(email);
+        }
+
         // Handle PIN
         if (updatedSession.pinSet && updatedSession.pinValue) {
           savePIN(updatedSession.pinValue);
@@ -399,7 +446,26 @@ function OnboardingChat() {
         // Handle completion
         if (data.reply.includes("[ONBOARDING_COMPLETE]")) {
           await completeOnboarding(updatedSession, newHistory);
-          router.push("/launch-pad");
+          // Auto-login if we have a token, otherwise redirect
+          if (autoLoginToken) {
+            const result = await signIn("onboarding-token", {
+              token: autoLoginToken,
+              redirect: false,
+            });
+            if (result?.ok) {
+              // Clean up localStorage
+              if (typeof window !== "undefined") {
+                localStorage.removeItem("onboarding_temp_session");
+              }
+              router.push("/launch-pad");
+            } else {
+              // Token login failed — fall back to login page
+              setPhase("complete");
+            }
+          } else {
+            // User was already logged in, or no token available
+            router.push("/launch-pad");
+          }
         }
       }
     } catch {
@@ -413,7 +479,8 @@ function OnboardingChat() {
     }
 
     setThinking(false);
-  }, [thinking, uploading, input, conversationHistory, sessionData, userName]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thinking, uploading, input, conversationHistory, sessionData, userName, isAnonymous, autoLoginToken, userId, tempSessionId]);
 
   /* ── File Upload ─────────────────────────────────────── */
 
@@ -515,6 +582,8 @@ function OnboardingChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token: token || undefined,
+          userId: userId || undefined,
+          tempSessionId: isAnonymous ? tempSessionId : undefined,
           sessionData: data,
           conversationHistory: history,
           progress: data.progress,
@@ -527,10 +596,51 @@ function OnboardingChat() {
     }
   }
 
+  async function createAccountSilently(email: string) {
+    try {
+      const res = await fetch("/api/onboarding/create-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          name: userName || sessionData.businessInfo?.name || "",
+          tempSessionId: tempSessionId || undefined,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.status === "created") {
+        setUserId(data.userId);
+        setAutoLoginToken(data.autoLoginToken);
+        setIsAnonymous(false);
+        // Clean up localStorage temp session — we have a real account now
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("onboarding_temp_session");
+        }
+      } else if (data.status === "exists_incomplete") {
+        setUserId(data.userId);
+        setIsAnonymous(false);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("onboarding_temp_session");
+        }
+      } else if (data.status === "exists_complete") {
+        // User already exists and finished onboarding — show login message
+        const loginMsg: Message = {
+          id: generateId(),
+          role: "assistant",
+          content: "Looks like you already have an account with that email! Head over to the login page to sign in and access your dashboard.",
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, loginMsg]);
+      }
+    } catch (err) {
+      console.error("Silent account creation failed:", err);
+    }
+  }
+
   async function savePIN(pin: string) {
     try {
-      // Always use the onboarding API for PIN — this doesn't clear the setup token
-      // (the setup API would clear it, breaking subsequent token-based calls)
       await fetch("/api/onboarding/complete", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -538,6 +648,7 @@ function OnboardingChat() {
           action: "save-pin",
           pin,
           token: token || undefined,
+          userId: userId || undefined,
         }),
       });
     } catch (err) {
@@ -644,6 +755,7 @@ function OnboardingChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token: token || undefined,
+          userId: userId || undefined,
           restaurantName: data.businessInfo?.name,
           ownerName: userName,
           restaurantType: data.businessInfo?.type,
@@ -874,6 +986,9 @@ function OnboardingChat() {
           >
             Go to Login
           </button>
+          <p className="text-xs text-porch-brown-light mt-3">
+            Your account is ready — log in with the email you provided during setup.
+          </p>
         </div>
       </div>
     );
@@ -915,13 +1030,13 @@ function OnboardingChat() {
             />
           </div>
           <div className="flex justify-between mt-1 text-[10px] text-porch-brown-light">
-            <span className={sessionData.progress >= 8 ? "text-porch-teal font-medium" : ""}>Info</span>
-            <span className={sessionData.progress >= 15 ? "text-porch-teal font-medium" : ""}>Suppliers</span>
+            <span className={sessionData.progress >= 7 ? "text-porch-teal font-medium" : ""}>Info</span>
+            <span className={sessionData.progress >= 18 ? "text-porch-teal font-medium" : ""}>Suppliers</span>
             <span className={sessionData.progress >= 30 ? "text-porch-teal font-medium" : ""}>Menu</span>
-            <span className={sessionData.progress >= 45 ? "text-porch-teal font-medium" : ""}>Costs</span>
-            <span className={sessionData.progress >= 62 ? "text-porch-teal font-medium" : ""}>Categories</span>
-            <span className={sessionData.progress >= 70 ? "text-porch-teal font-medium" : ""}>Hours</span>
-            <span className={sessionData.progress >= 88 ? "text-porch-teal font-medium" : ""}>Targets</span>
+            <span className={sessionData.progress >= 42 ? "text-porch-teal font-medium" : ""}>Costs</span>
+            <span className={sessionData.progress >= 58 ? "text-porch-teal font-medium" : ""}>Categories</span>
+            <span className={sessionData.progress >= 65 ? "text-porch-teal font-medium" : ""}>Hours</span>
+            <span className={sessionData.progress >= 85 ? "text-porch-teal font-medium" : ""}>Targets</span>
             <span className={sessionData.progress >= 95 ? "text-porch-teal font-medium" : ""}>PIN</span>
           </div>
         </div>

@@ -14,7 +14,9 @@ import bcrypt from "bcryptjs";
  */
 async function resolveUser(
   request: Request,
-  bodyToken?: string
+  bodyToken?: string,
+  bodyUserId?: string,
+  tempSessionId?: string
 ): Promise<{ id: string; name: string; restaurantId: string | null } | null> {
   // Try auth session first
   const session = await auth();
@@ -28,17 +30,35 @@ async function resolveUser(
 
   // Try token
   const token = bodyToken || new URL(request.url).searchParams.get("token");
-  if (!token) return null;
+  if (token) {
+    const sql = getDb();
+    const rows = await sql`
+      SELECT id, name, restaurant_id FROM users
+      WHERE setup_token = ${token}
+        AND setup_token_expires > NOW()
+    `;
+    if (rows.length > 0) {
+      return { id: rows[0].id, name: rows[0].name || "", restaurantId: rows[0].restaurant_id || null };
+    }
+  }
 
-  const sql = getDb();
-  const rows = await sql`
-    SELECT id, name, restaurant_id FROM users
-    WHERE setup_token = ${token}
-      AND setup_token_expires > NOW()
-  `;
-  return rows.length > 0
-    ? { id: rows[0].id, name: rows[0].name || "", restaurantId: rows[0].restaurant_id || null }
-    : null;
+  // Try userId from body (for users whose account was just created mid-chat)
+  if (bodyUserId) {
+    const sql = getDb();
+    const rows = await sql`
+      SELECT id, name, restaurant_id FROM users WHERE id = ${bodyUserId}
+    `;
+    if (rows.length > 0) {
+      return { id: rows[0].id, name: rows[0].name || "", restaurantId: rows[0].restaurant_id || null };
+    }
+  }
+
+  // Try tempSessionId for anonymous progress saving (no real user yet)
+  if (tempSessionId) {
+    return { id: tempSessionId, name: "", restaurantId: null };
+  }
+
+  return null;
 }
 
 /**
@@ -49,7 +69,8 @@ async function resolveUser(
  */
 export async function GET(request: Request) {
   try {
-    const user = await resolveUser(request);
+    const tempSessionId = new URL(request.url).searchParams.get("tempSessionId") || undefined;
+    const user = await resolveUser(request, undefined, undefined, tempSessionId);
     if (!user) {
       return NextResponse.json(
         { error: "Not authenticated and no valid token" },
@@ -116,9 +137,9 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { token: bodyToken, sessionData, conversationHistory, progress } = body;
+    const { token: bodyToken, userId: bodyUserId, tempSessionId, sessionData, conversationHistory, progress } = body;
 
-    const user = await resolveUser(request, bodyToken);
+    const user = await resolveUser(request, bodyToken, bodyUserId, tempSessionId);
     if (!user) {
       return NextResponse.json(
         { error: "Not authenticated and no valid token" },
@@ -188,9 +209,9 @@ export async function PUT(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { token: bodyToken, restaurantName, ownerName, restaurantType } = body;
+    const { token: bodyToken, userId: bodyUserId, restaurantName, ownerName, restaurantType } = body;
 
-    const user = await resolveUser(request, bodyToken);
+    const user = await resolveUser(request, bodyToken, bodyUserId);
     if (!user) {
       return NextResponse.json(
         { error: "Not authenticated and no valid token" },
@@ -256,7 +277,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "PIN must be 4-6 digits" }, { status: 400 });
     }
 
-    const user = await resolveUser(request, bodyToken);
+    const user = await resolveUser(request, bodyToken, body.userId);
     if (!user) {
       return NextResponse.json(
         { error: "Not authenticated and no valid token" },

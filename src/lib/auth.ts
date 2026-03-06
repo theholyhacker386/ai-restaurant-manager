@@ -125,6 +125,61 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       },
     }),
+    // Onboarding auto-login token (one-time use, created during frictionless onboarding)
+    Credentials({
+      id: "onboarding-token",
+      credentials: {
+        token: { label: "Token", type: "text" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.token) return null;
+
+        const token = credentials.token as string;
+
+        const sql = neon(process.env.NEON_DATABASE_URL!);
+        const rows = await sql`
+          SELECT id, email, name, role, onboarding_completed, restaurant_id, is_platform_admin
+          FROM users
+          WHERE auto_login_token = ${token}
+            AND auto_login_token_expires > NOW()
+        `;
+
+        if (rows.length === 0) {
+          console.log("[AUTH] onboarding token invalid or expired");
+          return null;
+        }
+
+        const user = rows[0];
+
+        // Clear the token (single-use)
+        await sql`
+          UPDATE users
+          SET auto_login_token = NULL, auto_login_token_expires = NULL
+          WHERE id = ${user.id}
+        `;
+
+        logAuditEvent({
+          eventType: "login",
+          userId: user.id,
+          userEmail: user.email,
+          userRole: user.role,
+          restaurantId: user.restaurant_id || undefined,
+          details: { method: "onboarding-token" },
+        });
+
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role || "owner",
+          onboardingCompleted: user.onboarding_completed ?? false,
+          restaurantId: user.restaurant_id || null,
+          isPlatformAdmin: user.is_platform_admin ?? false,
+          mfaRequired: false,
+          mfaVerified: false,
+        };
+      },
+    }),
     // PIN-only login
     Credentials({
       id: "pin",

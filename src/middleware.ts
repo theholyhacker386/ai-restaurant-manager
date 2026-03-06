@@ -32,7 +32,7 @@ export default auth((req) => {
   }
 
   // Public pages that don't require login
-  const publicPages = ["/login", "/setup", "/signup", "/verify"];
+  const publicPages = ["/login", "/setup", "/signup", "/verify", "/onboarding"];
   const isPublicPage = publicPages.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   // Onboarding page — requires login but NOT completed onboarding
@@ -55,16 +55,22 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // If the user is NOT logged in and is NOT on a public page, send them to login
+  // If the user is NOT logged in and is NOT on a public page, redirect them
   if (!req.auth && !isPublicPage) {
+    // Root path → send to onboarding (frictionless entry point)
+    if (pathname === "/") {
+      const onboardingUrl = new URL("/onboarding", req.nextUrl.origin);
+      return NextResponse.redirect(onboardingUrl);
+    }
+    // Everything else → login
     const loginUrl = new URL("/login", req.nextUrl.origin);
     return NextResponse.redirect(loginUrl);
   }
 
   // If the user IS logged in and goes to a public page, send them to the dashboard
-  // Exception: allow /login/mfa for MFA verification
+  // Exceptions: /login/mfa for MFA verification, /onboarding for users still setting up
   const isMfaPage = pathname === "/login/mfa";
-  if (req.auth && isPublicPage && !isMfaPage) {
+  if (req.auth && isPublicPage && !isMfaPage && !isOnboardingPage) {
     const user = req.auth.user as any;
     const needsMfa = user?.mfaRequired === true && user?.mfaVerified !== true;
     // If MFA is pending, redirect to MFA page, not dashboard
