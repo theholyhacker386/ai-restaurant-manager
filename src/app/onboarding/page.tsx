@@ -22,6 +22,8 @@ interface SessionData {
   pinSet: boolean;
   pinValue: string;
   progress: number;
+  categories: { name: string; items: string[] }[];
+  businessHours: Record<string, { open: string; close: string } | null> | null;
 }
 
 /* ── Constants ─────────────────────────────────────────── */
@@ -35,6 +37,8 @@ const INITIAL_SESSION: SessionData = {
   pinSet: false,
   pinValue: "",
   progress: 0,
+  categories: [],
+  businessHours: null,
 };
 
 function generateId() {
@@ -53,6 +57,7 @@ const CHECKLIST_OPTIONAL = [
   { id: "spreadsheet", icon: "\uD83D\uDCCA", label: "Cost spreadsheet or P&L", desc: "If you track costs in a spreadsheet, have it ready to upload. CSV, Excel, or PDF." },
   { id: "costs", icon: "\uD83D\uDCB0", label: "Monthly overhead costs", desc: "Rent, utilities, insurance amounts. Helpful but not required right now." },
   { id: "pos", icon: "\uD83D\uDCF1", label: "POS system info", desc: "Know which system you use (Square, Toast, Clover, etc.)" },
+  { id: "hours", icon: "\uD83D\uDD50", label: "Business hours", desc: "Know your open/close times for each day of the week." },
 ];
 
 /* ── Data Tag Parsing ──────────────────────────────────── */
@@ -135,6 +140,26 @@ function parseDataTags(text: string, session: SessionData): { cleanText: string;
     } catch { /* ignore */ }
   }
 
+  // Categories
+  const catMatch = text.match(/\[SET_CATEGORIES:(\[[\s\S]*?\])\]/);
+  if (catMatch) {
+    try {
+      const cats = JSON.parse(catMatch[1]);
+      updated.categories = cats.map((c: any) => ({
+        name: c.name || "Uncategorized",
+        items: c.items || [],
+      }));
+    } catch { /* ignore */ }
+  }
+
+  // Business hours
+  const hoursMatch = text.match(/\[SET_HOURS:(\{[\s\S]*?\})\]/);
+  if (hoursMatch) {
+    try {
+      updated.businessHours = JSON.parse(hoursMatch[1]);
+    } catch { /* ignore */ }
+  }
+
   // PIN
   const pinMatch = text.match(/\[SET_PIN:"?(\d{4,6})"?\]/);
   if (pinMatch) {
@@ -149,6 +174,8 @@ function parseDataTags(text: string, session: SessionData): { cleanText: string;
     .replace(/\[ADD_SUPPLIERS:\[.*?\]]/g, "")
     .replace(/\[ADD_MENU_ITEMS:\[[\s\S]*?\]]/g, "")
     .replace(/\[ADD_INGREDIENTS:\[[\s\S]*?\]]/g, "")
+    .replace(/\[SET_CATEGORIES:\[[\s\S]*?\]]/g, "")
+    .replace(/\[SET_HOURS:\{[\s\S]*?\}]/g, "")
     .replace(/\[SET_TARGETS:\{.*?\}]/g, "")
     .replace(/\[SET_PIN:"?\d{4,6}"?]/g, "")
     .replace(/\[ONBOARDING_COMPLETE]/g, "")
@@ -296,7 +323,7 @@ function OnboardingChat() {
       const fallbackMsg: Message = {
         id: generateId(),
         role: "assistant",
-        content: `Hey${userName ? ` ${userName}` : ""}! Welcome to Porch Manager! I'm here to help you get your restaurant all set up. This takes about 10-15 minutes, and I'll walk you through everything step by step.\n\nLet's start with the basics \u2014 what's the name of your restaurant?`,
+        content: `Hey${userName ? ` ${userName}` : ""}! Welcome to AI Restaurant Manager! I'm here to help you get your restaurant all set up. This takes about 10-15 minutes, and I'll walk you through everything step by step.\n\nLet's start with the basics \u2014 what's the name of your restaurant?`,
         timestamp: Date.now(),
       };
       setMessages([fallbackMsg]);
@@ -372,7 +399,7 @@ function OnboardingChat() {
         // Handle completion
         if (data.reply.includes("[ONBOARDING_COMPLETE]")) {
           await completeOnboarding(updatedSession, newHistory);
-          setPhase("complete");
+          router.push("/launch-pad");
         }
       }
     } catch {
@@ -556,7 +583,36 @@ function OnboardingChat() {
         }
       }
 
-      // Save cost targets
+      // Save menu categories and assign items
+      if (data.categories.length > 0) {
+        for (let i = 0; i < data.categories.length; i++) {
+          const cat = data.categories[i];
+          try {
+            const catRes = await fetch("/api/menu-categories", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: cat.name, sort_order: i + 1 }),
+            });
+            if (catRes.ok) {
+              const catData = await catRes.json();
+              const categoryId = catData.id || catData.category?.id;
+              if (categoryId && cat.items) {
+                for (const itemName of cat.items) {
+                  await fetch("/api/menu-items/assign-category", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ itemName, categoryId }),
+                  });
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Error saving category:", err);
+          }
+        }
+      }
+
+      // Save cost targets and business hours
       if (data.targets) {
         await fetch("/api/settings", {
           method: "PUT",
@@ -569,7 +625,7 @@ function OnboardingChat() {
             max_staff: 3,
             min_shift_hours: 4,
             employer_burden_rate: 12,
-            business_hours: {
+            business_hours: data.businessHours || {
               "0": { open: "12:00", close: "17:00" },
               "1": null,
               "2": { open: "08:00", close: "18:00" },
@@ -659,7 +715,7 @@ function OnboardingChat() {
               <span className="text-white font-bold text-sm">AI</span>
             </div>
             <div>
-              <h1 className="text-base font-semibold">Porch Manager</h1>
+              <h1 className="text-base font-semibold">AI Restaurant Manager</h1>
               <p className="text-xs text-white/70">Restaurant Setup</p>
             </div>
           </div>
@@ -834,7 +890,7 @@ function OnboardingChat() {
             <span className="text-white font-bold text-sm">AI</span>
           </div>
           <div>
-            <h1 className="text-base font-semibold">Porch Manager</h1>
+            <h1 className="text-base font-semibold">AI Restaurant Manager</h1>
             <p className="text-xs text-white/70">Restaurant Setup</p>
           </div>
         </div>
@@ -859,11 +915,13 @@ function OnboardingChat() {
             />
           </div>
           <div className="flex justify-between mt-1 text-[10px] text-porch-brown-light">
-            <span className={sessionData.progress >= 10 ? "text-porch-teal font-medium" : ""}>Info</span>
-            <span className={sessionData.progress >= 20 ? "text-porch-teal font-medium" : ""}>Suppliers</span>
-            <span className={sessionData.progress >= 40 ? "text-porch-teal font-medium" : ""}>Menu</span>
-            <span className={sessionData.progress >= 60 ? "text-porch-teal font-medium" : ""}>Costs</span>
-            <span className={sessionData.progress >= 85 ? "text-porch-teal font-medium" : ""}>Targets</span>
+            <span className={sessionData.progress >= 8 ? "text-porch-teal font-medium" : ""}>Info</span>
+            <span className={sessionData.progress >= 15 ? "text-porch-teal font-medium" : ""}>Suppliers</span>
+            <span className={sessionData.progress >= 30 ? "text-porch-teal font-medium" : ""}>Menu</span>
+            <span className={sessionData.progress >= 45 ? "text-porch-teal font-medium" : ""}>Costs</span>
+            <span className={sessionData.progress >= 62 ? "text-porch-teal font-medium" : ""}>Categories</span>
+            <span className={sessionData.progress >= 70 ? "text-porch-teal font-medium" : ""}>Hours</span>
+            <span className={sessionData.progress >= 88 ? "text-porch-teal font-medium" : ""}>Targets</span>
             <span className={sessionData.progress >= 95 ? "text-porch-teal font-medium" : ""}>PIN</span>
           </div>
         </div>
@@ -892,7 +950,7 @@ function OnboardingChat() {
                       <div className="w-5 h-5 rounded-full bg-porch-brown flex items-center justify-center">
                         <span className="text-white text-[9px] font-bold">AI</span>
                       </div>
-                      <span className="text-[10px] font-medium text-porch-brown-light">Porch AI</span>
+                      <span className="text-[10px] font-medium text-porch-brown-light">AI Assistant</span>
                     </div>
                   )}
                   <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
