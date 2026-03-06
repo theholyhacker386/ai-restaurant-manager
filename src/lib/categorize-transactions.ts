@@ -141,7 +141,7 @@ function cleanDescription(name: string): string {
 // RESTAURANT INDUSTRY KEYWORD MATCHING
 // ═══════════════════════════════════════════════════════════
 //
-// These patterns work for ANY restaurant, not just The Porch.
+// These patterns work for ANY restaurant, not just one specific business.
 // They catch obvious categorizations BEFORE the AI even sees them.
 // This prevents the AI from making dumb mistakes on well-known merchants.
 
@@ -307,7 +307,7 @@ const KEYWORD_RULES: KeywordRule[] = [
 /**
  * Step 1.5: Keyword matching — catches obvious patterns before AI
  * Uses cleaned descriptions (with bank noise stripped) for accurate matching.
- * Works for ANY restaurant, not just The Porch.
+ * Works for ANY restaurant, not just one specific business.
  */
 function keywordMatch(txn: PlaidTransaction): CategoryMatch | null {
   // Clean the description to strip bank noise like "Recurring Payment authorized on..."
