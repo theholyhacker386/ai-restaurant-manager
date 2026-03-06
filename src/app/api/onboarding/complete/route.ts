@@ -88,6 +88,8 @@ export async function GET(request: Request) {
       pinSet: storedMeta.pinSet || false,
       pinValue: "", // never send back the actual PIN
       progress: s.progress || 0,
+      categories: storedMeta.categories || [],
+      businessHours: storedMeta.businessHours || null,
     };
 
     return NextResponse.json({
@@ -133,6 +135,8 @@ export async function PUT(request: Request) {
       targets: sessionData?.targets || null,
       tenure: sessionData?.businessInfo?.tenure || "",
       pinSet: sessionData?.pinSet || false,
+      categories: sessionData?.categories || [],
+      businessHours: sessionData?.businessHours || null,
     };
 
     await sql`
