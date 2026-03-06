@@ -1,7 +1,7 @@
 {
   "project": "ai-restaurant-manager",
-  "phase": "Plaid Security Attestations",
-  "updated_at": "2026-03-05T22:41:45-05:00",
+  "phase": "Onboarding Upgrade",
+  "updated_at": "2026-03-05T23:22:58-05:00",
   "active_tasks": [],
   "completed_tasks": [
     {
@@ -25,13 +25,19 @@
       "completed_at": "2026-03-05T22:30:00-05:00"
     },
     {
+      "id": "SEC-C",
+      "title": "Consent + De-Provisioning + Data Delete/Export + Privacy Page",
+      "completed_at": "2026-03-05T22:40:00-05:00"
+    },
+    {
       "id": "PLAID-SECURITY",
       "title": "Wire up Plaid routes with security infrastructure",
       "completed_at": "2026-03-05T22:35:00-05:00"
     }
   ],
   "next_actions": [
-    "Launch SEC-C builder (Consent, De-Provisioning, Data Delete/Export, Privacy Page)",
+    "Launch OB-1 builder (Upgrade onboarding chat: categories, hours, branding fix)",
+    "Launch OB-2 builder (Post-onboarding Launch Pad + assistant hours fix)",
     "Human test Plaid bank connection flow end-to-end in production",
     "Human test MFA enrollment and login flow"
   ]
