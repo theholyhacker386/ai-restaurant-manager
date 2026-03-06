@@ -62,8 +62,16 @@ export default auth((req) => {
   }
 
   // If the user IS logged in and goes to a public page, send them to the dashboard
-  if (req.auth && isPublicPage) {
+  // Exception: allow /login/mfa for MFA verification
+  const isMfaPage = pathname === "/login/mfa";
+  if (req.auth && isPublicPage && !isMfaPage) {
     const user = req.auth.user as any;
+    const needsMfa = user?.mfaRequired === true && user?.mfaVerified !== true;
+    // If MFA is pending, redirect to MFA page, not dashboard
+    if (needsMfa) {
+      const mfaUrl = new URL("/login/mfa", req.nextUrl.origin);
+      return NextResponse.redirect(mfaUrl);
+    }
     // Platform admins go to admin dashboard
     if (user?.isPlatformAdmin) {
       const adminUrl = new URL("/admin", req.nextUrl.origin);
@@ -76,6 +84,23 @@ export default auth((req) => {
   // Allow onboarding pages and APIs for any logged-in user
   if (req.auth && (isOnboardingPage || isOnboardingAPI)) {
     return NextResponse.next();
+  }
+
+  // MFA guard — users with MFA enabled but not yet verified get redirected
+  if (req.auth && !isMfaPage) {
+    const user = req.auth.user as any;
+    const needsMfa = user?.mfaRequired === true && user?.mfaVerified !== true;
+
+    if (needsMfa && !pathname.startsWith("/api/auth")) {
+      // Allow MFA validation API calls through
+      if (pathname.startsWith("/api/")) {
+        return addSecurityHeaders(
+          NextResponse.json({ error: "MFA verification required" }, { status: 403 })
+        );
+      }
+      const mfaUrl = new URL("/login/mfa", req.nextUrl.origin);
+      return NextResponse.redirect(mfaUrl);
+    }
   }
 
   // Admin route protection — only platform admins can access /admin

@@ -14,7 +14,10 @@ export type AuditEventType =
   | "consent_granted"
   | "consent_revoked"
   | "data_exported"
-  | "data_deleted";
+  | "data_deleted"
+  | "mfa_enabled"
+  | "mfa_disabled"
+  | "mfa_failed";
 
 let tableEnsured = false;
 

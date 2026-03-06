@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { neon } from "@neondatabase/serverless";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logAuditEvent } from "@/lib/audit";
+import { verifyMfaCompletionToken } from "@/lib/mfa";
 
 // 10 attempts per 15 minutes
 const LOGIN_MAX_ATTEMPTS = 10;
@@ -42,7 +43,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
           const sql = neon(process.env.NEON_DATABASE_URL!);
           console.log("[AUTH] querying user:", email);
-          const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin, email_verified, is_active FROM users WHERE email = ${email}`;
+          const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin, email_verified, is_active, mfa_enabled FROM users WHERE email = ${email}`;
 
           console.log("[AUTH] rows found:", rows.length);
           if (rows.length === 0) {
@@ -88,6 +89,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             return null;
           }
 
+          // If MFA is enabled, create session but mark as MFA-unverified
+          const mfaRequired = user.mfa_enabled === true;
+
           const result = {
             id: user.id,
             email: user.email,
@@ -96,18 +100,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             onboardingCompleted: user.onboarding_completed ?? false,
             restaurantId: user.restaurant_id || null,
             isPlatformAdmin: user.is_platform_admin ?? false,
+            mfaRequired,
+            mfaVerified: false,
           };
           console.log("[AUTH] returning user:", JSON.stringify(result));
 
-          // Log successful login
-          logAuditEvent({
-            eventType: "login",
-            userId: user.id,
-            userEmail: user.email,
-            userRole: user.role,
-            restaurantId: user.restaurant_id || undefined,
-            details: { method: "email" },
-          });
+          // Only log successful login if MFA is not required
+          // (if MFA is required, login audit happens after MFA validation in /api/auth/mfa/validate)
+          if (!mfaRequired) {
+            logAuditEvent({
+              eventType: "login",
+              userId: user.id,
+              userEmail: user.email,
+              userRole: user.role,
+              restaurantId: user.restaurant_id || undefined,
+              details: { method: "email" },
+            });
+          }
 
           return result;
         } catch (err) {
@@ -164,6 +173,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               onboardingCompleted: user.onboarding_completed ?? false,
               restaurantId: user.restaurant_id || null,
               isPlatformAdmin: user.is_platform_admin ?? false,
+              mfaRequired: false, // PIN login skips MFA
+              mfaVerified: false,
             };
           }
         }
@@ -183,7 +194,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     signIn: "/login",
   },
   callbacks: {
-    jwt({ token, user }) {
+    jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -194,7 +205,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.restaurantId = (user as any).restaurantId || null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         token.isPlatformAdmin = (user as any).isPlatformAdmin ?? false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        token.mfaRequired = (user as any).mfaRequired ?? false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        token.mfaVerified = (user as any).mfaVerified ?? false;
       }
+
+      // Handle MFA completion via session update
+      if (trigger === "update" && session?.mfaCompletionToken) {
+        const userId = token.id as string;
+        const isValid = verifyMfaCompletionToken(session.mfaCompletionToken, userId);
+        if (isValid) {
+          token.mfaVerified = true;
+        }
+      }
+
       return token;
     },
     session({ session, token }) {
@@ -208,6 +233,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         (session.user as any).restaurantId = token.restaurantId || null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).isPlatformAdmin = token.isPlatformAdmin ?? false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).mfaRequired = token.mfaRequired ?? false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).mfaVerified = token.mfaVerified ?? false;
       }
       return session;
     },

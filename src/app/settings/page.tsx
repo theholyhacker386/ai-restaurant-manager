@@ -898,6 +898,9 @@ const EVENT_TYPE_OPTIONS = [
   { value: "user_deactivated", label: "User Deactivated" },
   { value: "settings_changed", label: "Settings Changed" },
   { value: "password_changed", label: "Password Changed" },
+  { value: "mfa_enabled", label: "MFA Enabled" },
+  { value: "mfa_disabled", label: "MFA Disabled" },
+  { value: "mfa_failed", label: "MFA Failed" },
 ];
 
 function getEventColor(eventType: string): string {
@@ -914,6 +917,12 @@ function getEventColor(eventType: string): string {
     case "settings_changed":
     case "password_changed":
       return "border-l-amber-500 bg-amber-50/50";
+    case "mfa_enabled":
+      return "border-l-emerald-500 bg-emerald-50/50";
+    case "mfa_disabled":
+      return "border-l-amber-500 bg-amber-50/50";
+    case "mfa_failed":
+      return "border-l-red-500 bg-red-50/50";
     default:
       return "border-l-gray-400 bg-gray-50/50";
   }
@@ -953,6 +962,341 @@ function timeAgo(dateString: string): string {
 }
 
 function SecurityTab() {
+  return (
+    <div className="space-y-5">
+      <MfaSection />
+      <AuditLogSection />
+    </div>
+  );
+}
+
+/* ================================================================ */
+/* MFA SECTION (inside Security tab)                                  */
+/* ================================================================ */
+
+function MfaSection() {
+  const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [setupStep, setSetupStep] = useState(0); // 0=none, 1=QR, 2=verify, 3=backup codes
+  const [qrCode, setQrCode] = useState("");
+  const [manualSecret, setManualSecret] = useState("");
+  const [verifyCode, setVerifyCode] = useState("");
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+  const [showDisableModal, setShowDisableModal] = useState(false);
+  const [disableCode, setDisableCode] = useState("");
+  const [copiedCodes, setCopiedCodes] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/mfa")
+      .then((r) => r.json())
+      .then((data) => {
+        setMfaEnabled(data.mfaEnabled);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  async function startSetup() {
+    setError("");
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/auth/mfa/setup", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to start setup");
+        setActionLoading(false);
+        return;
+      }
+      setQrCode(data.qrCode);
+      setManualSecret(data.secret);
+      setSetupStep(1);
+    } catch {
+      setError("Something went wrong");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleVerify() {
+    if (verifyCode.length !== 6) return;
+    setError("");
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/auth/mfa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: verifyCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Invalid code");
+        setActionLoading(false);
+        return;
+      }
+      setBackupCodes(data.backupCodes);
+      setSetupStep(3);
+      setMfaEnabled(true);
+    } catch {
+      setError("Something went wrong");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleRegenerateBackupCodes() {
+    setError("");
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/auth/mfa/backup", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to regenerate");
+        setActionLoading(false);
+        return;
+      }
+      setBackupCodes(data.backupCodes);
+      setSetupStep(3); // Show backup codes
+    } catch {
+      setError("Something went wrong");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleDisable() {
+    if (!disableCode) return;
+    setError("");
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/auth/mfa", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: disableCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Invalid code");
+        setActionLoading(false);
+        return;
+      }
+      setMfaEnabled(false);
+      setShowDisableModal(false);
+      setDisableCode("");
+      setSetupStep(0);
+    } catch {
+      setError("Something went wrong");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  function copyAllCodes() {
+    navigator.clipboard.writeText(backupCodes.join("\n"));
+    setCopiedCodes(true);
+    setTimeout(() => setCopiedCodes(false), 2000);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-6">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-porch-brown" />
+      </div>
+    );
+  }
+
+  return (
+    <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-bold text-foreground">Two-Factor Authentication</h3>
+        <span
+          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+            mfaEnabled
+              ? "bg-emerald-100 text-emerald-700"
+              : "bg-gray-100 text-gray-500"
+          }`}
+        >
+          {mfaEnabled ? "Enabled" : "Not Enabled"}
+        </span>
+      </div>
+      <p className="text-[11px] text-muted mb-3">
+        Add an extra layer of security. After entering your password, you&apos;ll also need a code from an authenticator app (like Google Authenticator or Authy).
+      </p>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-3">
+          {error}
+          <button onClick={() => setError("")} className="ml-2 text-xs underline">dismiss</button>
+        </div>
+      )}
+
+      {/* MFA NOT enabled — show setup button or wizard */}
+      {!mfaEnabled && setupStep === 0 && (
+        <button
+          onClick={startSetup}
+          disabled={actionLoading}
+          className="w-full bg-porch-teal text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-porch-teal-light disabled:opacity-50 transition-colors"
+        >
+          {actionLoading ? "Setting up..." : "Set Up 2FA"}
+        </button>
+      )}
+
+      {/* Step 1: QR Code */}
+      {setupStep === 1 && (
+        <div className="space-y-3">
+          <p className="text-xs text-foreground font-medium">Step 1: Scan this QR code with your authenticator app</p>
+          <div className="flex justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrCode} alt="QR Code for authenticator app" className="w-48 h-48" />
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3">
+            <p className="text-[10px] text-muted mb-1">Can&apos;t scan? Enter this code manually:</p>
+            <p className="text-xs font-mono text-foreground break-all select-all">{manualSecret}</p>
+          </div>
+          <button
+            onClick={() => setSetupStep(2)}
+            className="w-full bg-porch-brown text-white text-sm font-medium py-2.5 rounded-xl hover:bg-porch-brown/90 transition-colors"
+          >
+            Next
+          </button>
+          <button
+            onClick={() => { setSetupStep(0); setError(""); }}
+            className="w-full text-sm text-muted py-2 hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Step 2: Verify code */}
+      {setupStep === 2 && (
+        <div className="space-y-3">
+          <p className="text-xs text-foreground font-medium">Step 2: Enter the 6-digit code from your authenticator app</p>
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={6}
+            value={verifyCode}
+            onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            className="w-full px-3 py-3 border border-gray-200 rounded-lg text-center text-xl tracking-[0.3em] font-mono focus:outline-none focus:ring-2 focus:ring-porch-brown/30"
+            placeholder="000000"
+            autoFocus
+          />
+          <button
+            onClick={handleVerify}
+            disabled={actionLoading || verifyCode.length !== 6}
+            className="w-full bg-porch-brown text-white text-sm font-medium py-2.5 rounded-xl hover:bg-porch-brown/90 disabled:opacity-50 transition-colors"
+          >
+            {actionLoading ? "Verifying..." : "Verify & Enable"}
+          </button>
+          <button
+            onClick={() => { setSetupStep(1); setVerifyCode(""); setError(""); }}
+            className="w-full text-sm text-muted py-2 hover:text-foreground transition-colors"
+          >
+            Back
+          </button>
+        </div>
+      )}
+
+      {/* Step 3: Backup codes */}
+      {setupStep === 3 && (
+        <div className="space-y-3">
+          <p className="text-xs text-foreground font-medium">Step 3: Save your backup codes</p>
+          <p className="text-[11px] text-muted">
+            These are one-time-use codes. If you lose access to your authenticator app, use one of these to log in. Store them somewhere safe!
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {backupCodes.map((code, i) => (
+              <div key={i} className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+                <span className="text-sm font-mono text-foreground">{code}</span>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={copyAllCodes}
+            className="w-full text-sm font-medium py-2.5 rounded-xl border border-gray-200 text-porch-brown hover:bg-porch-cream/30 transition-colors"
+          >
+            {copiedCodes ? "Copied!" : "Copy All Codes"}
+          </button>
+          <button
+            onClick={() => { setSetupStep(0); setBackupCodes([]); setVerifyCode(""); }}
+            className="w-full bg-porch-brown text-white text-sm font-medium py-2.5 rounded-xl hover:bg-porch-brown/90 transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      )}
+
+      {/* MFA IS enabled — show management options */}
+      {mfaEnabled && setupStep === 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={handleRegenerateBackupCodes}
+            disabled={actionLoading}
+            className="w-full text-sm font-medium py-2.5 rounded-xl border border-gray-200 text-porch-brown hover:bg-porch-cream/30 disabled:opacity-50 transition-colors"
+          >
+            {actionLoading ? "Generating..." : "Regenerate Backup Codes"}
+          </button>
+          <button
+            onClick={() => setShowDisableModal(true)}
+            className="w-full text-sm font-medium py-2.5 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+          >
+            Disable 2FA
+          </button>
+        </div>
+      )}
+
+      {/* Disable modal */}
+      {showDisableModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-5 max-w-sm w-full shadow-xl">
+            <h4 className="text-sm font-bold text-foreground mb-2">Disable Two-Factor Authentication</h4>
+            <p className="text-xs text-muted mb-3">
+              Enter a code from your authenticator app to confirm.
+            </p>
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2 mb-3">
+                {error}
+              </div>
+            )}
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={disableCode}
+              onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              className="w-full px-3 py-3 border border-gray-200 rounded-lg text-center text-xl tracking-[0.3em] font-mono focus:outline-none focus:ring-2 focus:ring-porch-brown/30 mb-3"
+              placeholder="000000"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleDisable}
+                disabled={actionLoading || disableCode.length !== 6}
+                className="flex-1 bg-red-600 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {actionLoading ? "Disabling..." : "Disable"}
+              </button>
+              <button
+                onClick={() => { setShowDisableModal(false); setDisableCode(""); setError(""); }}
+                className="flex-1 text-sm text-muted py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ================================================================ */
+/* AUDIT LOG SECTION (inside Security tab)                            */
+/* ================================================================ */
+
+function AuditLogSection() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1008,6 +1352,7 @@ function SecurityTab() {
 
   return (
     <div className="space-y-4">
+      <h3 className="text-sm font-bold text-foreground">Activity Log</h3>
       <p className="text-xs text-muted">
         View who logged in, what changed, and any blocked access attempts.
       </p>
