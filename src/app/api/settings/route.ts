@@ -6,10 +6,22 @@ import { logAuditEvent, getRequestMeta } from "@/lib/audit";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// Ensure tax-related columns exist (safe to run repeatedly)
+async function ensureTaxColumns(sql: any) {
+  await sql`ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS sales_tax_rate DECIMAL`;
+  await sql`ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS state TEXT`;
+  await sql`ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS county TEXT`;
+  await sql`ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS tax_filing_frequency TEXT DEFAULT 'quarterly'`;
+}
+
 // GET — return current business settings
 export async function GET() {
   try {
     const { sql, restaurantId } = await getTenantDb();
+
+    // Make sure tax columns exist
+    await ensureTaxColumns(sql);
+
     const rows = await sql`SELECT * FROM business_settings WHERE restaurant_id = ${restaurantId}`;
 
     if (rows.length === 0) {
@@ -31,6 +43,10 @@ export async function GET() {
         business_hours: typeof row.business_hours === "string"
           ? JSON.parse(row.business_hours)
           : row.business_hours,
+        sales_tax_rate: row.sales_tax_rate != null ? Number(row.sales_tax_rate) : null,
+        state: row.state || null,
+        county: row.county || null,
+        tax_filing_frequency: row.tax_filing_frequency || "quarterly",
       },
     });
   } catch (error: any) {
@@ -45,19 +61,39 @@ export async function PUT(request: NextRequest) {
     const { sql, restaurantId } = await getTenantDb();
     const body = await request.json();
 
-    await sql`
-      UPDATE business_settings SET
-        food_cost_target = ${body.food_cost_target},
-        food_cost_warning = ${body.food_cost_warning},
-        rplh_target = ${body.rplh_target},
-        max_staff = ${body.max_staff},
-        min_shift_hours = ${body.min_shift_hours},
-        labor_cost_target = ${body.labor_cost_target},
-        employer_burden_rate = ${body.employer_burden_rate},
-        business_hours = ${JSON.stringify(body.business_hours)},
-        updated_at = NOW()
-      WHERE restaurant_id = ${restaurantId}
-    `;
+    // Make sure tax columns exist before updating
+    await ensureTaxColumns(sql);
+
+    // If this is a tax-only update (from the tax dashboard), only update tax fields
+    if (body._taxSettingsOnly) {
+      await sql`
+        UPDATE business_settings SET
+          sales_tax_rate = ${body.sales_tax_rate ?? null},
+          state = ${body.state ?? null},
+          county = ${body.county ?? null},
+          tax_filing_frequency = ${body.tax_filing_frequency ?? 'quarterly'},
+          updated_at = NOW()
+        WHERE restaurant_id = ${restaurantId}
+      `;
+    } else {
+      await sql`
+        UPDATE business_settings SET
+          food_cost_target = ${body.food_cost_target},
+          food_cost_warning = ${body.food_cost_warning},
+          rplh_target = ${body.rplh_target},
+          max_staff = ${body.max_staff},
+          min_shift_hours = ${body.min_shift_hours},
+          labor_cost_target = ${body.labor_cost_target},
+          employer_burden_rate = ${body.employer_burden_rate},
+          business_hours = ${JSON.stringify(body.business_hours)},
+          sales_tax_rate = ${body.sales_tax_rate ?? null},
+          state = ${body.state ?? null},
+          county = ${body.county ?? null},
+          tax_filing_frequency = ${body.tax_filing_frequency ?? 'quarterly'},
+          updated_at = NOW()
+        WHERE restaurant_id = ${restaurantId}
+      `;
+    }
 
     // Audit log: settings changed
     const session = await auth();
