@@ -40,6 +40,7 @@ const OWNER_ONLY_API = [
   "/api/projections",     // Projections
   "/api/statements",      // Bank statements
   "/api/team",            // Team management
+  "/api/plaid",           // Bank connections (Plaid)
 ];
 
 /**

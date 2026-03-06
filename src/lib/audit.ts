@@ -17,7 +17,9 @@ export type AuditEventType =
   | "data_deleted"
   | "mfa_enabled"
   | "mfa_disabled"
-  | "mfa_failed";
+  | "mfa_failed"
+  | "plaid_connected"
+  | "plaid_disconnected";
 
 let tableEnsured = false;
 

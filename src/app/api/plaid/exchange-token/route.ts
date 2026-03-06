@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPlaidClient, ensurePlaidTables } from "@/lib/plaid";
 import { getTenantDb } from "@/lib/tenant";
 import { encrypt } from "@/lib/encryption";
+import { logAuditEvent, getRequestMeta } from "@/lib/audit";
 import { v4 as uuid } from "uuid";
 
 export async function POST(request: NextRequest) {
@@ -57,6 +58,17 @@ export async function POST(request: NextRequest) {
           last_synced = NOW()
       `;
     }
+
+    // Log audit event for bank connection
+    const { ipAddress, userAgent } = getRequestMeta(request);
+    logAuditEvent({
+      restaurantId,
+      eventType: 'plaid_connected',
+      userId: '',
+      ipAddress,
+      userAgent,
+      details: { institution_name: institution?.name, item_id: itemId },
+    });
 
     return NextResponse.json({
       success: true,

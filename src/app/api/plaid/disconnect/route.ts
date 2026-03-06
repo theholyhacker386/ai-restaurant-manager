@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPlaidClient } from "@/lib/plaid";
 import { getTenantDb } from "@/lib/tenant";
 import { decrypt } from "@/lib/encryption";
+import { logAuditEvent, getRequestMeta } from "@/lib/audit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,6 +39,17 @@ export async function POST(request: NextRequest) {
         WHERE item_id = ${item_id} AND restaurant_id = ${restaurantId}
       `;
     }
+
+    // Log audit event for bank disconnection
+    const { ipAddress, userAgent } = getRequestMeta(request);
+    logAuditEvent({
+      restaurantId,
+      eventType: 'plaid_disconnected',
+      userId: '',
+      ipAddress,
+      userAgent,
+      details: { item_id },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
