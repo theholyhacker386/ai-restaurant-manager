@@ -87,6 +87,16 @@ const sections: NavSection[] = [
         ),
       },
       {
+        label: "Sales Tax",
+        href: "/taxes",
+        ownerOnly: true,
+        icon: (
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185zM9.75 9h.008v.008H9.75V9zm4.5 5.25h.008v.008h-.008v-.008z" />
+          </svg>
+        ),
+      },
+      {
         label: "Bank Connections",
         href: "/bank-connections",
         ownerOnly: true,
