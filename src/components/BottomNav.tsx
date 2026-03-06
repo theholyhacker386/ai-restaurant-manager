@@ -25,7 +25,7 @@ const tabs: Tab[] = [
     label: "Money",
     href: "/money",
     isActive: (pathname) =>
-      ["/money", "/sales", "/expenses", "/kpis", "/projections", "/hourly"].some(
+      ["/money", "/sales", "/expenses", "/kpis", "/projections", "/hourly", "/bank-connections"].some(
         (p) => pathname === p || pathname.startsWith(p + "/")
       ),
     icon: (active: boolean) => (
