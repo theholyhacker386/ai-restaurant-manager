@@ -5,6 +5,7 @@ import { buildSystemPrompt } from "@/lib/assistant-prompt";
 import { executeTool } from "@/lib/assistant-executor";
 import { getTenantDb } from "@/lib/tenant";
 import { auth } from "@/lib/auth";
+import { getSettings } from "@/lib/settings";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -86,9 +87,18 @@ export async function POST(request: NextRequest) {
       enrichedMessage += `\n\n[Context: User is on page "${pageContext.pathname || "/"}" (${pageContext.pageTitle || "unknown"}), viewport ${pageContext.viewport?.width || 0}x${pageContext.viewport?.height || 0}, device: ${pageContext.userAgent || "unknown"}]`;
     }
 
+    // Fetch real business hours from the database for the system prompt
+    let businessHours: Record<string, { open: string; close: string } | null> | undefined;
+    try {
+      const settings = await getSettings(restaurantId);
+      businessHours = settings.business_hours;
+    } catch {
+      // Fall back to no hours — the prompt will say "Business hours not set."
+    }
+
     // Build messages array: system prompt + conversation history + new message
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: "system", content: buildSystemPrompt() },
+      { role: "system", content: buildSystemPrompt({ businessHours }) },
       ...(history || []).map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,

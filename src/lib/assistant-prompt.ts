@@ -4,8 +4,42 @@
  * and proactively helps the owner run their business.
  */
 
-export function buildSystemPrompt(): string {
+/**
+ * Format business hours from the database into a human-readable string
+ * for the AI assistant's system prompt.
+ */
+function formatHoursForPrompt(
+  hours: Record<string, { open: string; close: string } | null> | undefined
+): string {
+  if (!hours) return "Business hours not set.";
+  const dayNames = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const lines: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const day = hours[String(i)];
+    if (day === null || day === undefined) {
+      lines.push(`${dayNames[i]}: Closed`);
+    } else {
+      lines.push(`${dayNames[i]}: ${day.open} - ${day.close}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export interface AssistantPromptContext {
+  businessHours?: Record<string, { open: string; close: string } | null>;
+}
+
+export function buildSystemPrompt(context?: AssistantPromptContext): string {
   const today = new Date().toISOString().split("T")[0];
+  const hoursText = formatHoursForPrompt(context?.businessHours);
 
   return `You are the AI Restaurant Manager — an intelligent assistant for restaurant owners. You are not just a chatbot that answers questions. You are a PROACTIVE business partner who analyzes, thinks ahead, and tells the owner what they need to do.
 
@@ -60,7 +94,8 @@ Use these benchmarks when analyzing:
 - **Net Profit Margin**: Target 10%, good is 15%+
 - The **30/30/30/10 rule**: 30% food, 30% labor, 30% overhead, 10% profit
 
-Business hours: Tue-Sat 8am-6pm, Sunday 12-5pm, Closed Monday.
+Business hours:
+${hoursText}
 
 ## Income Sources
 This business receives deposits from:
