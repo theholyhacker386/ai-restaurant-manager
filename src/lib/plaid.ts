@@ -106,4 +106,12 @@ export async function ensurePlaidTables(sql: any) {
       UNIQUE(restaurant_id, merchant_pattern, category_id)
     )
   `;
+
+  // Handle existing tables that may lack restaurant_id
+  try {
+    await sql`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS restaurant_id TEXT`;
+    await sql`ALTER TABLE plaid_category_rules ADD COLUMN IF NOT EXISTS restaurant_id TEXT`;
+  } catch {
+    // Column may already exist
+  }
 }

@@ -17,6 +17,7 @@ interface ConnectedAccount {
   institution_name: string;
   last_synced: string;
   item_status: string;
+  item_id: string;
 }
 
 interface PlaidTransaction {
@@ -99,6 +100,21 @@ export default function PlaidLinkSection() {
     } catch {
       setError("Could not start bank connection. Please try again.");
       setConnecting(false);
+    }
+  };
+
+  const disconnectAccount = async (itemId: string, bankName: string) => {
+    if (!confirm(`Are you sure you want to disconnect ${bankName}?`)) return;
+    try {
+      const res = await fetch("/api/plaid/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: itemId }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      await fetchPlaidData();
+    } catch {
+      setError("Failed to disconnect bank account. Please try again.");
     }
   };
 
@@ -221,6 +237,12 @@ export default function PlaidLinkSection() {
                     })}
                   </p>
                 </div>
+                <button
+                  onClick={() => disconnectAccount(acc.item_id, acc.institution_name || acc.name)}
+                  className="text-[10px] text-porch-brown/50 hover:text-status-danger transition-colors mt-1"
+                >
+                  Disconnect
+                </button>
               </div>
             ))}
 

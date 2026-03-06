@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
 
     // Get connected accounts for this restaurant only
     const accounts = await sql`
-      SELECT pa.*, pi.institution_name, pi.status as item_status
+      SELECT pa.*, pi.institution_name, pi.status as item_status, pi.item_id
       FROM plaid_accounts pa
       JOIN plaid_items pi ON pa.plaid_item_id = pi.id
       WHERE pi.status = 'active' AND pa.restaurant_id = ${restaurantId}
