@@ -1,7 +1,7 @@
 {
   "project": "ai-restaurant-manager",
-  "phase": "Onboarding Upgrade",
-  "updated_at": "2026-03-06T00:05:00-05:00",
+  "phase": "Onboarding Upgrade + Features",
+  "updated_at": "2026-03-06T00:45:00-05:00",
   "active_tasks": [],
   "completed_tasks": [
     {
@@ -48,13 +48,18 @@
       "id": "REMINDERS",
       "title": "Recurring reminders with push notifications, cron job, and management UI",
       "completed_at": "2026-03-06T00:05:00-05:00"
+    },
+    {
+      "id": "TAX",
+      "title": "Sales tax dashboard with state rate lookup, period tracking, and YTD summary",
+      "completed_at": "2026-03-06T00:45:00-05:00"
     }
   ],
   "next_actions": [
     "Human test: Sign up as new customer and go through upgraded onboarding",
-    "Human test: Plaid bank connection flow end-to-end",
-    "Human test: MFA enrollment and login flow",
+    "Human test: Sales tax dashboard (set state/rate, view periods)",
     "Human test: Recurring reminders (create, toggle, verify push notification)",
+    "Human test: Plaid bank connection flow",
     "Future: Build Square OAuth connection",
     "Future: Build recipe builder UI"
   ]
