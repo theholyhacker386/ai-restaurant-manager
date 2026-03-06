@@ -1,6 +1,22 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { canAccessPage, canAccessAPI, type UserRole } from "@/lib/permissions";
+import { logAuditEvent } from "@/lib/audit";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Add security headers to a NextResponse.
+ */
+function addSecurityHeaders(response: NextResponse): NextResponse {
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  response.headers.set("X-XSS-Protection", "1; mode=block");
+  return response;
+}
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -47,7 +63,6 @@ export default auth((req) => {
 
   // If the user IS logged in and goes to a public page, send them to the dashboard
   if (req.auth && isPublicPage) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = req.auth.user as any;
     // Platform admins go to admin dashboard
     if (user?.isPlatformAdmin) {
@@ -65,7 +80,6 @@ export default auth((req) => {
 
   // Admin route protection — only platform admins can access /admin
   if (req.auth && (isAdminPage || isAdminAPI)) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = req.auth.user as any;
     if (!user?.isPlatformAdmin) {
       if (isAdminAPI) {
@@ -79,7 +93,6 @@ export default auth((req) => {
 
   // Onboarding guard — owners who haven't finished onboarding get redirected
   if (req.auth && !isOnboardingPage && !isOnboardingAPI) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = req.auth.user as any;
 
     // Platform admins skip onboarding guard — they go to /admin
@@ -104,24 +117,51 @@ export default auth((req) => {
 
   // Role-based access control
   if (req.auth) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const role = ((req.auth.user as any)?.role || "manager") as UserRole;
 
     // Check API route access
     if (pathname.startsWith("/api/")) {
       if (!canAccessAPI(pathname, role)) {
-        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+        // Fire-and-forget audit log for access denied
+        const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+        const ua = req.headers.get("user-agent") || "unknown";
+        logAuditEvent({
+          eventType: "access_denied",
+          userId: (req.auth.user as any)?.id,
+          userEmail: req.auth.user?.email || undefined,
+          userRole: role,
+          restaurantId: (req.auth.user as any)?.restaurantId || undefined,
+          ipAddress: ip,
+          userAgent: ua,
+          resource: pathname,
+        });
+        return addSecurityHeaders(
+          NextResponse.json({ error: "Access denied" }, { status: 403 })
+        );
       }
     }
     // Check page access
     else if (!canAccessPage(pathname, role)) {
+      // Fire-and-forget audit log for access denied
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+      const ua = req.headers.get("user-agent") || "unknown";
+      logAuditEvent({
+        eventType: "access_denied",
+        userId: (req.auth.user as any)?.id,
+        userEmail: req.auth.user?.email || undefined,
+        userRole: role,
+        restaurantId: (req.auth.user as any)?.restaurantId || undefined,
+        ipAddress: ip,
+        userAgent: ua,
+        resource: pathname,
+      });
       // Redirect managers to home if they try to access owner-only pages
       const homeUrl = new URL("/", req.nextUrl.origin);
       return NextResponse.redirect(homeUrl);
     }
   }
 
-  return NextResponse.next();
+  return addSecurityHeaders(NextResponse.next());
 });
 
 export const config = {

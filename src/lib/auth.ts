@@ -2,6 +2,12 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { neon } from "@neondatabase/serverless";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { logAuditEvent } from "@/lib/audit";
+
+// 10 attempts per 15 minutes
+const LOGIN_MAX_ATTEMPTS = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -20,22 +26,67 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             return null;
           }
 
-          const sql = neon(process.env.NEON_DATABASE_URL!);
           const email = credentials.email as string;
+
+          // Rate limit by email
+          const { limited } = checkRateLimit(`login:email:${email}`, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS);
+          if (limited) {
+            console.log("[AUTH] rate limited for email:", email);
+            logAuditEvent({
+              eventType: "login_failed",
+              userEmail: email,
+              details: { reason: "rate_limited", method: "email" },
+            });
+            return null;
+          }
+
+          const sql = neon(process.env.NEON_DATABASE_URL!);
           console.log("[AUTH] querying user:", email);
-          const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin, email_verified FROM users WHERE email = ${email}`;
+          const rows = await sql`SELECT id, email, password_hash, name, role, onboarding_completed, restaurant_id, is_platform_admin, email_verified, is_active FROM users WHERE email = ${email}`;
 
           console.log("[AUTH] rows found:", rows.length);
-          if (rows.length === 0) return null;
+          if (rows.length === 0) {
+            logAuditEvent({
+              eventType: "login_failed",
+              userEmail: email,
+              details: { reason: "user_not_found", method: "email" },
+            });
+            return null;
+          }
 
           const user = rows[0];
+
+          // Block deactivated users from logging in
+          if (user.is_active === false) {
+            console.log("[AUTH] user is deactivated:", email);
+            logAuditEvent({
+              eventType: "login_failed",
+              userId: user.id,
+              userEmail: email,
+              userRole: user.role,
+              restaurantId: user.restaurant_id || undefined,
+              details: { reason: "account_deactivated", method: "email" },
+            });
+            return null;
+          }
+
           const passwordMatch = await bcrypt.compare(
             credentials.password as string,
             user.password_hash
           );
 
           console.log("[AUTH] password match:", passwordMatch);
-          if (!passwordMatch) return null;
+          if (!passwordMatch) {
+            logAuditEvent({
+              eventType: "login_failed",
+              userId: user.id,
+              userEmail: email,
+              userRole: user.role,
+              restaurantId: user.restaurant_id || undefined,
+              details: { reason: "wrong_password", method: "email" },
+            });
+            return null;
+          }
 
           const result = {
             id: user.id,
@@ -47,6 +98,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             isPlatformAdmin: user.is_platform_admin ?? false,
           };
           console.log("[AUTH] returning user:", JSON.stringify(result));
+
+          // Log successful login
+          logAuditEvent({
+            eventType: "login",
+            userId: user.id,
+            userEmail: user.email,
+            userRole: user.role,
+            restaurantId: user.restaurant_id || undefined,
+            details: { method: "email" },
+          });
+
           return result;
         } catch (err) {
           console.error("[AUTH] authorize error:", err);
@@ -63,15 +125,37 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.pin) return null;
 
-        const sql = neon(process.env.NEON_DATABASE_URL!);
         const pin = credentials.pin as string;
 
-        // Only check users that have a PIN set
-        const rows = await sql`SELECT id, email, name, role, pin_hash, onboarding_completed, restaurant_id, is_platform_admin FROM users WHERE pin_hash IS NOT NULL`;
+        // Rate limit by PIN value
+        const { limited } = checkRateLimit(`login:pin:${pin}`, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS);
+        if (limited) {
+          console.log("[AUTH] rate limited for PIN attempt");
+          logAuditEvent({
+            eventType: "login_failed",
+            details: { reason: "rate_limited", method: "pin" },
+          });
+          return null;
+        }
+
+        const sql = neon(process.env.NEON_DATABASE_URL!);
+
+        // Only check active users that have a PIN set
+        const rows = await sql`SELECT id, email, name, role, pin_hash, onboarding_completed, restaurant_id, is_platform_admin FROM users WHERE pin_hash IS NOT NULL AND (is_active = true OR is_active IS NULL)`;
 
         for (const user of rows) {
           const match = await bcrypt.compare(pin, user.pin_hash);
           if (match) {
+            // Log successful PIN login
+            logAuditEvent({
+              eventType: "login",
+              userId: user.id,
+              userEmail: user.email,
+              userRole: user.role,
+              restaurantId: user.restaurant_id || undefined,
+              details: { method: "pin" },
+            });
+
             return {
               id: user.id,
               email: user.email,
@@ -83,6 +167,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             };
           }
         }
+
+        // Log failed PIN login
+        logAuditEvent({
+          eventType: "login_failed",
+          details: { reason: "wrong_pin", method: "pin" },
+        });
 
         return null;
       },

@@ -4,10 +4,11 @@ import { auth } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { v4 as uuid } from "uuid";
+import { logAuditEvent, getRequestMeta } from "@/lib/audit";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// GET — list all team members (owner only)
+// GET — list all active team members (owner only)
 export async function GET() {
   try {
     const session = await auth();
@@ -21,11 +22,20 @@ export async function GET() {
     }
 
     const { sql, restaurantId } = await getTenantDb();
+
+    // Ensure soft-delete columns exist
+    try {
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_by TEXT`;
+    } catch { /* columns may already exist */ }
+
     const users = await sql`
       SELECT id, email, name, role, pin, (pin_hash IS NOT NULL) as has_pin,
              setup_token, setup_token_expires, created_at
       FROM users
       WHERE restaurant_id = ${restaurantId}
+        AND (is_active = true OR is_active IS NULL)
       ORDER BY created_at ASC
     `;
 
@@ -70,6 +80,20 @@ export async function POST(req: Request) {
       INSERT INTO users (id, email, name, password_hash, role, setup_token, setup_token_expires, restaurant_id)
       VALUES (${userId}, ${placeholderEmail}, ${name.trim()}, ${placeholderHash}, 'manager', ${setupToken}, ${expiresAt.toISOString()}, ${restaurantId})
     `;
+
+    // Audit log: team member created
+    const { ipAddress, userAgent } = getRequestMeta(req);
+    logAuditEvent({
+      eventType: "user_created",
+      userId: session.user.id,
+      userEmail: session.user.email || undefined,
+      userRole: role,
+      restaurantId,
+      ipAddress,
+      userAgent,
+      resource: "/api/team",
+      details: { createdUserId: userId, createdUserName: name.trim(), createdUserRole: "manager" },
+    });
 
     return NextResponse.json({
       success: true,
@@ -137,7 +161,7 @@ export async function PATCH(req: Request) {
   }
 }
 
-// DELETE — remove a team member
+// DELETE — soft-delete (deactivate) a team member
 export async function DELETE(req: Request) {
   try {
     const session = await auth();
@@ -158,7 +182,53 @@ export async function DELETE(req: Request) {
     }
 
     const { sql, restaurantId } = await getTenantDb();
-    await sql`DELETE FROM users WHERE id = ${userId} AND restaurant_id = ${restaurantId}`;
+
+    // Get the user's info for the audit log
+    const targetRows = await sql`SELECT name, email, role FROM users WHERE id = ${userId} AND restaurant_id = ${restaurantId}`;
+    const targetUser = targetRows[0];
+
+    // Soft delete: deactivate the user and clear credentials
+    await sql`
+      UPDATE users
+      SET is_active = false,
+          deactivated_at = NOW(),
+          deactivated_by = ${session.user.id},
+          pin = NULL,
+          pin_hash = NULL,
+          setup_token = NULL
+      WHERE id = ${userId} AND restaurant_id = ${restaurantId}
+    `;
+
+    // Clear MFA fields if they exist (may not be merged yet)
+    try {
+      await sql`
+        UPDATE users
+        SET mfa_secret = NULL,
+            mfa_enabled = false,
+            mfa_backup_codes = NULL
+        WHERE id = ${userId} AND restaurant_id = ${restaurantId}
+      `;
+    } catch {
+      // MFA columns don't exist yet — that's fine
+    }
+
+    // Audit log: team member deactivated
+    const { ipAddress, userAgent } = getRequestMeta(req);
+    logAuditEvent({
+      eventType: "user_deactivated",
+      userId: session.user.id,
+      userEmail: session.user.email || undefined,
+      userRole: role,
+      restaurantId,
+      ipAddress,
+      userAgent,
+      resource: "/api/team",
+      details: {
+        deactivatedUserId: userId,
+        deactivatedUserName: targetUser?.name || "unknown",
+        deactivatedUserRole: targetUser?.role || "unknown",
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

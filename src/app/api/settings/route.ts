@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantDb } from "@/lib/tenant";
 import { getSettings } from "@/lib/settings";
+import { auth } from "@/lib/auth";
+import { logAuditEvent, getRequestMeta } from "@/lib/audit";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -56,6 +58,26 @@ export async function PUT(request: NextRequest) {
         updated_at = NOW()
       WHERE restaurant_id = ${restaurantId}
     `;
+
+    // Audit log: settings changed
+    const session = await auth();
+    const { ipAddress, userAgent } = getRequestMeta(request);
+    logAuditEvent({
+      eventType: "settings_changed",
+      userId: session?.user?.id,
+      userEmail: session?.user?.email || undefined,
+      userRole: (session?.user as any)?.role,
+      restaurantId,
+      ipAddress,
+      userAgent,
+      resource: "/api/settings",
+      details: {
+        food_cost_target: body.food_cost_target,
+        food_cost_warning: body.food_cost_warning,
+        rplh_target: body.rplh_target,
+        labor_cost_target: body.labor_cost_target,
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

@@ -33,6 +33,7 @@ const OWNER_ONLY_PREFIXES = [
 
 // API routes that only the OWNER can call
 const OWNER_ONLY_API = [
+  "/api/audit",           // Audit log
   "/api/expenses",        // Expense data
   "/api/financials",      // P&L and financial reports
   "/api/kpis",            // KPI data

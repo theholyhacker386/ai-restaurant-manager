@@ -31,7 +31,7 @@ interface BusinessSettings {
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const APP_URL = typeof window !== "undefined" ? window.location.origin : "";
 
-type Tab = "business" | "team" | "account";
+type Tab = "business" | "team" | "account" | "security";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -76,6 +76,7 @@ export default function SettingsPage() {
           { id: "business" as Tab, label: "Business" },
           { id: "team" as Tab, label: "Team" },
           { id: "account" as Tab, label: "Account" },
+          { id: "security" as Tab, label: "Security" },
         ]).map((t) => (
           <button
             key={t.id}
@@ -94,6 +95,7 @@ export default function SettingsPage() {
       {tab === "business" && <BusinessSettingsTab onError={setError} onSuccess={setSuccess} />}
       {tab === "team" && <TeamTab onError={setError} onSuccess={setSuccess} />}
       {tab === "account" && <AccountTab onError={setError} onSuccess={setSuccess} />}
+      {tab === "security" && <SecurityTab />}
     </div>
   );
 }
@@ -866,6 +868,239 @@ function AccountTab({
           </button>
         </form>
       </section>
+    </div>
+  );
+}
+
+/* ================================================================ */
+/* SECURITY TAB                                                      */
+/* ================================================================ */
+
+interface AuditEntry {
+  id: string;
+  event_type: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_role: string | null;
+  ip_address: string | null;
+  resource: string | null;
+  details: any;
+  created_at: string;
+}
+
+const EVENT_TYPE_OPTIONS = [
+  { value: "", label: "All Events" },
+  { value: "login", label: "Logins" },
+  { value: "login_failed", label: "Failed Logins" },
+  { value: "access_denied", label: "Access Denied" },
+  { value: "user_created", label: "User Created" },
+  { value: "user_deleted", label: "User Deleted" },
+  { value: "user_deactivated", label: "User Deactivated" },
+  { value: "settings_changed", label: "Settings Changed" },
+  { value: "password_changed", label: "Password Changed" },
+];
+
+function getEventColor(eventType: string): string {
+  switch (eventType) {
+    case "login":
+      return "border-l-emerald-500 bg-emerald-50/50";
+    case "login_failed":
+    case "access_denied":
+      return "border-l-red-500 bg-red-50/50";
+    case "user_created":
+    case "user_deleted":
+    case "user_deactivated":
+      return "border-l-blue-500 bg-blue-50/50";
+    case "settings_changed":
+    case "password_changed":
+      return "border-l-amber-500 bg-amber-50/50";
+    default:
+      return "border-l-gray-400 bg-gray-50/50";
+  }
+}
+
+function getEventLabel(eventType: string): string {
+  return eventType
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function timeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) {
+    const mins = Math.floor(seconds / 60);
+    return `${mins} min${mins > 1 ? "s" : ""} ago`;
+  }
+  if (seconds < 86400) {
+    const hrs = Math.floor(seconds / 3600);
+    return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
+  }
+  if (seconds < 604800) {
+    const days = Math.floor(seconds / 86400);
+    return `${days} day${days > 1 ? "s" : ""} ago`;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
+}
+
+function SecurityTab() {
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const LIMIT = 50;
+
+  useEffect(() => {
+    setEntries([]);
+    setOffset(0);
+    setHasMore(true);
+    loadEntries(0, true);
+  }, [filter]);
+
+  async function loadEntries(currentOffset: number, reset = false) {
+    if (reset) setLoading(true);
+    else setLoadingMore(true);
+
+    try {
+      const params = new URLSearchParams({
+        limit: String(LIMIT),
+        offset: String(currentOffset),
+      });
+      if (filter) params.set("type", filter);
+
+      const res = await fetch(`/api/audit?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (reset) {
+          setEntries(data.entries);
+        } else {
+          setEntries((prev) => [...prev, ...data.entries]);
+        }
+        setHasMore(data.entries.length === LIMIT);
+        setOffset(currentOffset + data.entries.length);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-10">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-porch-brown" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted">
+        View who logged in, what changed, and any blocked access attempts.
+      </p>
+
+      {/* Filter */}
+      <select
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-porch-brown/30"
+      >
+        {EVENT_TYPE_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+
+      {/* Entries */}
+      {entries.length === 0 ? (
+        <div className="text-center py-10">
+          <p className="text-sm text-muted">No events found.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry) => (
+            <div
+              key={entry.id}
+              className={`rounded-xl border border-gray-100 border-l-4 p-3 ${getEventColor(entry.event_type)}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs font-semibold text-foreground">
+                      {getEventLabel(entry.event_type)}
+                    </span>
+                  </div>
+                  {entry.user_email && (
+                    <p className="text-[11px] text-muted truncate">
+                      {entry.user_email}
+                      {entry.user_role && (
+                        <span className="ml-1 text-porch-brown-light/60">({entry.user_role})</span>
+                      )}
+                    </p>
+                  )}
+                  {entry.resource && (
+                    <p className="text-[11px] text-muted truncate">
+                      Page: {entry.resource}
+                    </p>
+                  )}
+                  {entry.details && (
+                    <p className="text-[11px] text-muted mt-0.5">
+                      {entry.details.reason && (
+                        <span>Reason: {entry.details.reason.replace(/_/g, " ")}</span>
+                      )}
+                      {entry.details.method && (
+                        <span className="ml-2">via {entry.details.method}</span>
+                      )}
+                      {entry.details.createdUserName && (
+                        <span>Added: {entry.details.createdUserName}</span>
+                      )}
+                      {entry.details.deletedUserName && (
+                        <span>Removed: {entry.details.deletedUserName}</span>
+                      )}
+                      {entry.details.deactivatedUserName && (
+                        <span>Deactivated: {entry.details.deactivatedUserName}</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+                <span className="text-[10px] text-muted whitespace-nowrap flex-shrink-0">
+                  {timeAgo(entry.created_at)}
+                </span>
+              </div>
+              {entry.ip_address && entry.ip_address !== "unknown" && (
+                <p className="text-[10px] text-muted/60 mt-1">
+                  IP: {entry.ip_address}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Load More */}
+      {hasMore && entries.length > 0 && (
+        <button
+          onClick={() => loadEntries(offset)}
+          disabled={loadingMore}
+          className="w-full text-sm font-medium py-2.5 rounded-xl border border-gray-200 text-porch-brown hover:bg-porch-cream/30 disabled:opacity-50 transition-colors"
+        >
+          {loadingMore ? "Loading..." : "Load More"}
+        </button>
+      )}
     </div>
   );
 }
