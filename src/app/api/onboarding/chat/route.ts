@@ -40,10 +40,10 @@ SECTION 4 — MENU ITEMS:
 - Encourage uploading: "If you have a menu handy, just snap a photo or upload the PDF — I'll read everything automatically!"
 
 SECTION 5 — RECEIPTS & INVOICES:
-- Ask them to upload recent receipts or invoices from their suppliers
+- Ask them to upload receipts or invoices from their suppliers — photos or PDFs both work
 - The system will read items and prices automatically
-- Encourage at least one from each supplier: "The more receipts you upload, the more accurate your ingredient costs will be"
-- They can upload images or PDFs
+- Emphasize WHY: "Upload enough receipts so we can capture the price of every ingredient you use on your menu. That's how we'll calculate your exact food costs per dish. Go back as far as you need to — if an ingredient shows up on your menu, we need a receipt that has its price."
+- Encourage completeness: "Think about every supplier you buy from — grab at least one receipt from each. The goal is to have a price for every single ingredient."
 
 SECTION 6 — SPREADSHEETS (optional):
 - Ask if they track costs in any spreadsheet, P&L, or document
