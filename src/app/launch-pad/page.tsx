@@ -248,7 +248,7 @@ export default function LaunchPadPage() {
             <ActionCard
               icon={<span className="text-xl" role="img" aria-label="recipes">&#x1F4CB;</span>}
               title="Link Ingredients to Menu Items"
-              description="Tell us which ingredients go into each dish so we can track food cost per item."
+              description="Tell us what goes into each dish — include exact amounts like ounces, grams, or cups (not just '2 carrots' since sizes vary). This is how we calculate your real cost per plate."
               status={
                 data.recipesWithItems > 0
                   ? `${data.recipesWithItems} of ${data.totalMenuItems} items have recipes`

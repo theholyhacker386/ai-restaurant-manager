@@ -150,8 +150,8 @@ export default function RecipeCardsPage() {
         {cards.length === 0 && (
           <div className="text-center py-16">
             <p className="text-lg font-medium text-foreground">No recipes yet</p>
-            <p className="text-sm text-porch-brown-light/60 mt-1">
-              Add ingredients to your menu items first, then they&apos;ll show up here as printable recipe cards
+            <p className="text-sm text-porch-brown-light/60 mt-1 max-w-md mx-auto">
+              Tell us what goes into each menu item — use exact measurements like ounces, grams, or cups so we can calculate your real cost per plate. Once added, your recipes show up here as printable cards.
             </p>
             <Link href="/menu" className="inline-block mt-4 bg-porch-teal text-white px-6 py-3 rounded-xl font-semibold text-sm">
               Go to Menu
