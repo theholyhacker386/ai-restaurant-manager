@@ -3,12 +3,20 @@ import { getPlaidClient, ensurePlaidTables } from "@/lib/plaid";
 import { getTenantDb } from "@/lib/tenant";
 import { encrypt } from "@/lib/encryption";
 import { logAuditEvent, getRequestMeta } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
 
 export async function POST(request: NextRequest) {
   try {
     const client = getPlaidClient();
     const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 5 token exchange requests per 15 minutes per restaurant
+    const { limited } = checkRateLimit(`plaid-exchange-${restaurantId}`, 5, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const { public_token, institution } = await request.json();
 
     if (!public_token) {

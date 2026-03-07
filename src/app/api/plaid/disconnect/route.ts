@@ -3,11 +3,19 @@ import { getPlaidClient } from "@/lib/plaid";
 import { getTenantDb } from "@/lib/tenant";
 import { decrypt } from "@/lib/encryption";
 import { logAuditEvent, getRequestMeta } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
     const client = getPlaidClient();
     const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 5 disconnect requests per 15 minutes per restaurant
+    const { limited } = checkRateLimit(`plaid-disconnect-${restaurantId}`, 5, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const { item_id } = await request.json();
 
     if (!item_id) {

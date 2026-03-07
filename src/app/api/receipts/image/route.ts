@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantDb } from "@/lib/tenant";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 // GET - serve receipt images from database
 export async function GET(request: NextRequest) {
@@ -15,6 +16,12 @@ export async function GET(request: NextRequest) {
     }
 
     const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 15 image requests per 15 minutes per restaurant
+    const { limited } = checkRateLimit(`receipt-image-${restaurantId}`, 15, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
 
     const rows = await sql`SELECT image_data, image_mime_type FROM receipts WHERE id = ${receiptId} AND restaurant_id = ${restaurantId}`;
     const receipt = rows[0] as { image_data: string | null; image_mime_type: string | null } | undefined;

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { callOpenAIWithRetry } from "@/lib/openai";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { headers } from "next/headers";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -115,6 +117,16 @@ ALWAYS include [PROGRESS:XX] (0-100) based on how far along you are:
 
 export async function POST(request: Request) {
   try {
+    // Rate limit by IP since there's no restaurantId during onboarding
+    const headersList = await headers();
+    const ip = headersList.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+
+    // Rate limit: 30 onboarding chat requests per 15 minutes per IP
+    const { limited } = checkRateLimit(`onboarding-chat-${ip}`, 30, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const body = await request.json();
     const {
       message,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantDb } from "@/lib/tenant";
 import { ensurePlaidTables } from "@/lib/plaid";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * Helper: fully approve a single transaction — mark it approved, create expense entry, learn the rule.
@@ -165,6 +166,13 @@ async function autoApproveMatchingMerchants(
 export async function POST(request: NextRequest) {
   try {
     const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 20 approve requests per 15 minutes per restaurant
+    const { limited } = checkRateLimit(`plaid-approve-${restaurantId}`, 20, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensurePlaidTables(sql);
 
     const { transaction_id, category_id, category_name } = await request.json();
@@ -199,6 +207,13 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 20 approve requests per 15 minutes per restaurant (shared with POST)
+    const { limited } = checkRateLimit(`plaid-approve-${restaurantId}`, 20, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensurePlaidTables(sql);
 
     const { approvals } = await request.json();

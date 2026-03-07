@@ -2,12 +2,20 @@ import { NextResponse } from "next/server";
 import { getTenantDb } from "@/lib/tenant";
 import { ensurePlaidTables } from "@/lib/plaid";
 import { categorizeTransactions } from "@/lib/categorize-transactions";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function POST() {
   try {
     const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 20 categorize requests per 15 minutes per restaurant
+    const { limited } = checkRateLimit(`plaid-categorize-${restaurantId}`, 20, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensurePlaidTables(sql);
 
     // Step 1: Mark negative-amount pending transactions as income

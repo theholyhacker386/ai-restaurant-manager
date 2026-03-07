@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantDb } from "@/lib/tenant";
 import { extractReceiptData } from "@/lib/openai";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
 
 // POST - upload one or more receipt images, run AI extraction, save to database
 export async function POST(request: NextRequest) {
   try {
+    // Get tenant info and apply rate limit before expensive AI processing
+    const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 15 scan requests per 15 minutes per restaurant
+    const { limited } = checkRateLimit(`receipt-scan-${restaurantId}`, 15, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const formData = await request.formData();
 
     // Support both single "image" field and multiple "images" fields
@@ -42,8 +52,6 @@ export async function POST(request: NextRequest) {
       mimeTypes.length === 1 ? mimeTypes[0] : mimeTypes
     );
 
-    // Save receipt to database (store first image as the primary)
-    const { sql, restaurantId } = await getTenantDb();
     const receiptId = uuid();
 
     await sql`INSERT INTO receipts (id, supplier, receipt_date, subtotal, tax, total, image_data, image_mime_type, status, restaurant_id)

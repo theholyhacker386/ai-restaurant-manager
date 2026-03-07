@@ -6,6 +6,7 @@ import { executeTool } from "@/lib/assistant-executor";
 import { getTenantDb } from "@/lib/tenant";
 import { auth } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -60,6 +61,15 @@ export async function POST(request: NextRequest) {
 
     // Get or create conversation
     const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 30 chat requests per 15 minutes per restaurant
+    const { limited } = checkRateLimit(`chat-${restaurantId}`, 30, 15 * 60 * 1000);
+    if (limited) {
+      return new Response(JSON.stringify({ error: "Too many requests" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     let convId = conversationId || null;
     if (!convId) {
       const [conv] = await sql`

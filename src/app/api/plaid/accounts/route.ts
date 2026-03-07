@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantDb } from "@/lib/tenant";
 import { ensurePlaidTables } from "@/lib/plaid";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
   try {
     const { sql, restaurantId } = await getTenantDb();
+
+    // Rate limit: 10 accounts requests per 15 minutes per restaurant
+    const { limited } = checkRateLimit(`plaid-accounts-${restaurantId}`, 10, 15 * 60 * 1000);
+    if (limited) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     await ensurePlaidTables(sql);
 
     const { searchParams } = new URL(request.url);
