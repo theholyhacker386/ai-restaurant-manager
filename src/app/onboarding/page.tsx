@@ -50,7 +50,7 @@ function generateId() {
 
 const CHECKLIST_REQUIRED = [
   { id: "menu", icon: "\uD83C\uDF7D\uFE0F", label: "Your menu with prices", desc: "A printed menu, PDF, or photo. Or be ready to list your items and prices." },
-  { id: "receipts", icon: "\uD83E\uDDFE", label: "Recent receipts or supplier invoices", desc: "Photos or PDFs of receipts from wherever you buy food. One from each supplier is ideal." },
+  { id: "receipts", icon: "\uD83E\uDDFE", label: "Receipts or supplier invoices", desc: "Upload enough receipts to cover every ingredient on your menu — go back as far as you need. That's how we price out your entire food cost." },
   { id: "suppliers", icon: "\uD83D\uDED2", label: "Know your supplier names", desc: "The stores, distributors, and websites you buy food and supplies from." },
 ];
 
