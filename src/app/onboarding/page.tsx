@@ -50,16 +50,14 @@ function generateId() {
 /* ── Checklist Items ───────────────────────────────────── */
 
 const CHECKLIST_REQUIRED = [
-  { id: "menu", icon: "\uD83C\uDF7D\uFE0F", label: "Your menu with prices", desc: "A printed menu, PDF, or photo. Or be ready to list your items and prices." },
+  { id: "menu", icon: "\uD83C\uDF7D\uFE0F", label: "Menu with prices", desc: "A printed menu, PDF, or photo. Or be ready to list your items and prices." },
+  { id: "suppliers", icon: "\uD83D\uDED2", label: "List of suppliers", desc: "The stores, distributors, and websites you buy food and supplies from." },
   { id: "receipts", icon: "\uD83E\uDDFE", label: "Receipts or supplier invoices", desc: "Upload enough receipts to cover every ingredient on your menu — go back as far as you need. That's how we price out your entire food cost." },
-  { id: "suppliers", icon: "\uD83D\uDED2", label: "Know your supplier names", desc: "The stores, distributors, and websites you buy food and supplies from." },
 ];
 
 const CHECKLIST_OPTIONAL = [
+  { id: "bank", icon: "\uD83C\uDFE6", label: "Bank login info", desc: "We'll connect your bank account to automatically track your expenses and income. Have your online banking login ready." },
   { id: "spreadsheet", icon: "\uD83D\uDCCA", label: "Cost spreadsheet or P&L", desc: "If you track costs in a spreadsheet, have it ready to upload. CSV, Excel, or PDF." },
-  { id: "costs", icon: "\uD83D\uDCB0", label: "Monthly overhead costs", desc: "Rent, utilities, insurance amounts. Helpful but not required right now." },
-  { id: "pos", icon: "\uD83D\uDCF1", label: "POS system info", desc: "Know which system you use (Square, Toast, Clover, etc.)" },
-  { id: "hours", icon: "\uD83D\uDD50", label: "Business hours", desc: "Know your open/close times for each day of the week." },
 ];
 
 /* ── Data Tag Parsing ──────────────────────────────────── */
