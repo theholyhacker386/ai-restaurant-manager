@@ -283,7 +283,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).role = token.role as string;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (session.user as any).onboardingCompleted = token.onboardingCompleted ?? true;
+        (session.user as any).onboardingCompleted = token.onboardingCompleted ?? false;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).restaurantId = token.restaurantId || null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

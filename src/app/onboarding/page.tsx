@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
+import SupplierPicker from "@/components/SupplierPicker";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -181,6 +182,8 @@ function parseDataTags(text: string, session: SessionData): { cleanText: string;
     .replace(/\[SET_EMAIL:"[^"]*"\]/g, "")
     .replace(/\[BUSINESS_INFO:\{.*?\}]/g, "")
     .replace(/\[ADD_SUPPLIERS:\[.*?\]]/g, "")
+    .replace(/\[SHOW_SUPPLIER_PICKER\]/g, "")
+    .replace(/\[SHOW_SQUARE_CONNECT\]/g, "")
     .replace(/\[ADD_MENU_ITEMS:\[[\s\S]*?\]]/g, "")
     .replace(/\[ADD_INGREDIENTS:\[[\s\S]*?\]]/g, "")
     .replace(/\[SET_CATEGORIES:\[[\s\S]*?\]]/g, "")
@@ -223,6 +226,12 @@ function OnboardingChat() {
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  // Inline component state (supplier picker, square connect)
+  const [showSupplierPicker, setShowSupplierPicker] = useState(false);
+  const [showSquareConnect, setShowSquareConnect] = useState(false);
+  const [supplierPickerMsgId, setSupplierPickerMsgId] = useState("");
+  const [squareConnectMsgId, setSquareConnectMsgId] = useState("");
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -365,7 +374,7 @@ function OnboardingChat() {
       const fallbackMsg: Message = {
         id: generateId(),
         role: "assistant",
-        content: `Hey${userName ? ` ${userName}` : ""}! Welcome to AI Restaurant Manager! I'm here to help you get your restaurant all set up. This takes about 10-15 minutes, and I'll walk you through everything step by step.\n\nLet's start with the basics \u2014 what's the name of your restaurant?`,
+        content: `Hey${userName ? ` ${userName}` : ""}! I'm your Personal Onboarding Manager, and I'm here to help you get your restaurant all set up. This takes about 10-15 minutes, and I'll walk you through everything step by step.\n\nLet's start with the basics \u2014 what's the name of your restaurant?`,
         timestamp: Date.now(),
       };
       setMessages([fallbackMsg]);
@@ -429,6 +438,16 @@ function OnboardingChat() {
         newHistory.push({ role: "assistant", content: data.reply });
         setConversationHistory(newHistory);
         setSessionData(updatedSession);
+
+        // Check for inline component triggers
+        if (data.reply.includes("[SHOW_SUPPLIER_PICKER]")) {
+          setShowSupplierPicker(true);
+          setSupplierPickerMsgId(aiMsg.id);
+        }
+        if (data.reply.includes("[SHOW_SQUARE_CONNECT]")) {
+          setShowSquareConnect(true);
+          setSquareConnectMsgId(aiMsg.id);
+        }
 
         // Save session to database
         saveSession(updatedSession, newHistory);
@@ -767,6 +786,46 @@ function OnboardingChat() {
     }
   }
 
+  /* ── Supplier Picker Handler ─────────────────────────── */
+
+  function handleSupplierConfirm(suppliers: string[]) {
+    setShowSupplierPicker(false);
+    // Send supplier names back to the AI as a user message
+    sendMessage(`I selected these suppliers: ${suppliers.join(", ")}`);
+
+    // Kick off price checking in the background
+    fetch("/api/supplier-prices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ suppliers }),
+    }).catch(() => { /* non-critical */ });
+  }
+
+  /* ── Square Connect Handlers ───────────────────────── */
+
+  function handleSquareConnect() {
+    setShowSquareConnect(false);
+    // Open Square OAuth in a popup/new tab
+    window.open("/api/square/oauth/authorize", "_blank", "width=600,height=700");
+    sendMessage("I'm connecting my Square POS now.");
+  }
+
+  function handleSquareSkip() {
+    setShowSquareConnect(false);
+    sendMessage("I'll skip Square for now.");
+  }
+
+  // Handle Square OAuth callback (check URL params on mount)
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const squareStatus = url.searchParams.get("square");
+    if (squareStatus === "success") {
+      // Remove the query param
+      url.searchParams.delete("square");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }, []);
+
   /* ── Keyboard Handler ────────────────────────────────── */
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -828,7 +887,7 @@ function OnboardingChat() {
             </div>
             <div>
               <h1 className="text-base font-semibold">AI Restaurant Manager</h1>
-              <p className="text-xs text-white/70">Restaurant Setup</p>
+              <p className="text-xs text-white/70">Your Personal Onboarding Manager</p>
             </div>
           </div>
         </header>
@@ -841,7 +900,7 @@ function OnboardingChat() {
               {userName ? `Hey ${userName}! ` : ""}Before We Get Started
             </h2>
             <p className="text-sm text-porch-brown-light max-w-md mx-auto">
-              Our AI assistant will walk you through setting up your restaurant. Gather what you can from this checklist first &mdash; the more you have ready, the smoother it&apos;ll go.
+              Your Personal Onboarding Manager will walk you through setting up your restaurant. Gather what you can from this checklist first &mdash; the more you have ready, the smoother it&apos;ll go.
             </p>
           </div>
 
@@ -1032,6 +1091,7 @@ function OnboardingChat() {
           <div className="flex justify-between mt-1 text-[10px] text-porch-brown-light">
             <span className={sessionData.progress >= 7 ? "text-porch-teal font-medium" : ""}>Info</span>
             <span className={sessionData.progress >= 18 ? "text-porch-teal font-medium" : ""}>Suppliers</span>
+            <span className={sessionData.progress >= 22 ? "text-porch-teal font-medium" : ""}>POS</span>
             <span className={sessionData.progress >= 30 ? "text-porch-teal font-medium" : ""}>Menu</span>
             <span className={sessionData.progress >= 42 ? "text-porch-teal font-medium" : ""}>Costs</span>
             <span className={sessionData.progress >= 58 ? "text-porch-teal font-medium" : ""}>Categories</span>
@@ -1065,7 +1125,7 @@ function OnboardingChat() {
                       <div className="w-5 h-5 rounded-full bg-porch-brown flex items-center justify-center">
                         <span className="text-white text-[9px] font-bold">AI</span>
                       </div>
-                      <span className="text-[10px] font-medium text-porch-brown-light">AI Assistant</span>
+                      <span className="text-[10px] font-medium text-porch-brown-light">Your Onboarding Manager</span>
                     </div>
                   )}
                   <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
@@ -1076,6 +1136,40 @@ function OnboardingChat() {
                           &#128206; {a.name}
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {/* Inline SupplierPicker */}
+                  {showSupplierPicker && msg.id === supplierPickerMsgId && (
+                    <div className="mt-3">
+                      <SupplierPicker onConfirm={handleSupplierConfirm} />
+                    </div>
+                  )}
+                  {/* Inline Square Connect */}
+                  {showSquareConnect && msg.id === squareConnectMsgId && (
+                    <div className="mt-3 bg-porch-cream rounded-xl p-4 border border-porch-cream-dark">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 bg-black rounded-lg flex items-center justify-center">
+                          <span className="text-white text-lg font-bold">S</span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-porch-brown">Connect Square POS</p>
+                          <p className="text-xs text-porch-brown-light">Pull in your sales data automatically</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleSquareConnect}
+                          className="flex-1 bg-porch-teal text-white py-2 rounded-lg text-sm font-medium hover:bg-porch-teal-light transition-colors"
+                        >
+                          Connect Square
+                        </button>
+                        <button
+                          onClick={handleSquareSkip}
+                          className="px-4 py-2 text-sm text-porch-brown-light hover:text-porch-brown transition-colors"
+                        >
+                          Skip
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

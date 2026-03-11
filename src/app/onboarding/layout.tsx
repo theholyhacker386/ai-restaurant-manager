@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Get Started — AI Restaurant Manager",
+  title: "Your Personal Onboarding Manager — AI Restaurant Manager",
 };
 
 export default function OnboardingLayout({
