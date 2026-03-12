@@ -51,6 +51,7 @@ function generateId() {
 
 const CHECKLIST_REQUIRED = [
   { id: "menu", icon: "\uD83C\uDF7D\uFE0F", label: "Menu with prices", desc: "A printed menu, PDF, or photo. Or be ready to list your items and prices." },
+  { id: "recipes", icon: "\uD83D\uDCCB", label: "Recipes for every menu item", desc: "We need to know what goes into each item you sell. For example: a Latte = 9oz milk + 2oz espresso + 0.75oz vanilla syrup. Even coffee drinks, sauces, and blends need recipes so we can calculate your true cost per item." },
   { id: "suppliers", icon: "\uD83D\uDED2", label: "List of suppliers", desc: "The stores, distributors, and websites you buy food and supplies from. We'll automatically search the web for pricing from each supplier!" },
   { id: "receipts", icon: "\uD83E\uDDFE", label: "Receipts for select suppliers", desc: "We'll automatically pull prices from suppliers that post them online (Walmart, Costco, etc.). For suppliers that don't, we'll let you know which ones need receipts or invoices." },
 ];
