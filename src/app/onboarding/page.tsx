@@ -964,10 +964,13 @@ function OnboardingChat() {
 
           {/* Optional */}
           <div className="mb-6">
-            <h3 className="text-xs font-semibold text-porch-brown uppercase tracking-wide mb-3 flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-porch-brown uppercase tracking-wide mb-2 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-status-gray" />
               Helpful If You Have It
             </h3>
+            <p className="text-xs text-porch-brown-light mb-3 ml-4">
+              Don&apos;t have these yet? No worries &mdash; you can start the setup now and add them later.
+            </p>
             <div className="space-y-2">
               {CHECKLIST_OPTIONAL.map((item) => (
                 <ChecklistCard
