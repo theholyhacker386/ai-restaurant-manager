@@ -51,8 +51,8 @@ function generateId() {
 
 const CHECKLIST_REQUIRED = [
   { id: "menu", icon: "\uD83C\uDF7D\uFE0F", label: "Menu with prices", desc: "A printed menu, PDF, or photo. Or be ready to list your items and prices." },
-  { id: "suppliers", icon: "\uD83D\uDED2", label: "List of suppliers", desc: "The stores, distributors, and websites you buy food and supplies from." },
-  { id: "receipts", icon: "\uD83E\uDDFE", label: "Receipts or supplier invoices", desc: "Upload enough receipts to cover every ingredient on your menu — go back as far as you need. That's how we price out your entire food cost." },
+  { id: "suppliers", icon: "\uD83D\uDED2", label: "List of suppliers", desc: "The stores, distributors, and websites you buy food and supplies from. We'll automatically search the web for pricing from each supplier!" },
+  { id: "receipts", icon: "\uD83E\uDDFE", label: "Receipts for select suppliers", desc: "We'll automatically pull prices from suppliers that post them online (Walmart, Costco, etc.). For suppliers that don't, we'll let you know which ones need receipts or invoices." },
 ];
 
 const CHECKLIST_OPTIONAL = [
@@ -786,17 +786,41 @@ function OnboardingChat() {
 
   /* ── Supplier Picker Handler ─────────────────────────── */
 
-  function handleSupplierConfirm(suppliers: string[]) {
+  async function handleSupplierConfirm(suppliers: string[]) {
     setShowSupplierPicker(false);
     // Send supplier names back to the AI as a user message
     sendMessage(`I selected these suppliers: ${suppliers.join(", ")}`);
 
-    // Kick off price checking in the background
-    fetch("/api/supplier-prices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ suppliers }),
-    }).catch(() => { /* non-critical */ });
+    // Check which suppliers have public prices — then feed results back to the AI
+    try {
+      const res = await fetch("/api/supplier-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suppliers }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const results = data.results || {};
+        const autoFetchable: string[] = [];
+        const needReceipts: string[] = [];
+        for (const [name, info] of Object.entries(results)) {
+          if ((info as any).autoFetchable) {
+            autoFetchable.push(name);
+          } else {
+            needReceipts.push(name);
+          }
+        }
+        // Feed the results into the conversation so the AI knows which suppliers need receipts
+        const resultMsg = autoFetchable.length > 0 || needReceipts.length > 0
+          ? `[SYSTEM: Supplier price check complete. Suppliers with prices available online: ${autoFetchable.length > 0 ? autoFetchable.join(", ") : "none"}. Suppliers that need receipts (prices not publicly available): ${needReceipts.length > 0 ? needReceipts.join(", ") : "none"}. Tell the user these results so they know which suppliers need receipts.]`
+          : "";
+        if (resultMsg) {
+          // Small delay to let the first message process
+          await new Promise((r) => setTimeout(r, 2000));
+          sendMessage(resultMsg);
+        }
+      }
+    } catch { /* non-critical */ }
   }
 
   /* ── Square Connect Handlers ───────────────────────── */
@@ -965,7 +989,7 @@ function OnboardingChat() {
             <div>
               <p className="text-sm font-medium text-amber-900">Pro tip</p>
               <p className="text-xs text-amber-800">
-                You can upload photos of your menu and receipts directly in the chat &mdash; our AI will read them automatically. So snap some pictures before you start!
+                We&apos;ll automatically search the web for prices from your suppliers. For any that don&apos;t post prices online, you can upload photos of receipts or invoices &mdash; our AI reads them automatically!
               </p>
             </div>
           </div>

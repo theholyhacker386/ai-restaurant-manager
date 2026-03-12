@@ -47,7 +47,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const result = await lookupPrice(supplier, ingredient);
+    const result = await lookupPrice(ingredient, supplier);
 
     return NextResponse.json(result);
   } catch (error) {
