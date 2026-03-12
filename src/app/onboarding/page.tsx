@@ -59,7 +59,6 @@ const CHECKLIST_REQUIRED = [
 const CHECKLIST_OPTIONAL = [
   { id: "bank", icon: "\uD83C\uDFE6", label: "Bank login info", desc: "We'll connect your bank account to automatically track your expenses and income. Have your online banking login ready." },
   { id: "spreadsheet", icon: "\uD83D\uDCCA", label: "Cost spreadsheet or P&L", desc: "If you track costs in a spreadsheet, have it ready to upload. CSV, Excel, or PDF." },
-  { id: "employees", icon: "\uD83D\uDC65", label: "Employee names, roles & pay rates", desc: "If you have staff, know their names, positions (cook, server, etc.), and hourly pay. This powers your labor cost tracking and scheduling." },
   { id: "inventory", icon: "\uD83D\uDCE6", label: "Current inventory counts", desc: "A rough count of what you have on hand right now (cases of chicken, gallons of milk, etc.). This helps us build accurate shopping lists from day one." },
   { id: "tax", icon: "\uD83D\uDCB0", label: "Your state & sales tax rate", desc: "Know what state you're in and your sales tax percentage. This lets us track how much tax you're collecting and when it's due." },
 ];
