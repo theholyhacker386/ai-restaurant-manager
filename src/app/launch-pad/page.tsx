@@ -240,7 +240,7 @@ export default function LaunchPadPage() {
               title="Add Your Recipes"
               description={
                 "Every menu item needs a recipe \u2014 even coffee drinks, smoothies, and sauces. " +
-                "For example: a Latte = 9oz milk + 2oz espresso + 0.75oz vanilla syrup. " +
+                "For example: a Latte = 9oz milk + 20g coffee beans + 0.75oz vanilla syrup. " +
                 "Without this, we can\u2019t calculate what each item actually costs you to make."
               }
               status={
@@ -259,7 +259,7 @@ export default function LaunchPadPage() {
               title="Assign Ingredient Suppliers"
               description={
                 "Once we know all your ingredients from your recipes, we need to know where you buy each one \u2014 " +
-                "like \u2018milk from Costco\u2019 or \u2018espresso from a local roaster.\u2019 " +
+                "like \u2018milk from Costco\u2019 or \u2018coffee beans from a local roaster.\u2019 " +
                 "This lets us track prices and build accurate shopping lists."
               }
               status={
