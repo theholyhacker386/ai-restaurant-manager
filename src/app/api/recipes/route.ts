@@ -2,12 +2,51 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantDb } from "@/lib/tenant";
 import { v4 as uuid } from "uuid";
 
-// GET recipes for a menu item
+// GET recipes for a menu item, or all recipes when ?all=true
 export async function GET(request: NextRequest) {
   try {
     const { sql, restaurantId } = await getTenantDb();
     const { searchParams } = new URL(request.url);
     const menuItemId = searchParams.get("menu_item_id");
+    const all = searchParams.get("all");
+
+    // Bulk mode: return all recipes for the restaurant grouped by menu_item_id
+    if (all === "true") {
+      const recipes = await sql`
+        SELECT
+          r.id,
+          r.menu_item_id,
+          r.ingredient_id,
+          r.quantity,
+          r.quantity_unit,
+          r.notes,
+          i.name as ingredient_name,
+          i.cost_per_unit,
+          i.unit as ingredient_unit,
+          i.supplier,
+          i.package_size,
+          i.package_price,
+          (r.quantity * i.cost_per_unit * (CASE
+              WHEN r.quantity_unit = 'g' AND i.unit = 'oz' THEN 1.0/28.3495
+              WHEN r.quantity_unit = 'g' AND i.unit = 'lb' THEN 1.0/453.592
+              WHEN r.quantity_unit = 'oz' AND i.unit = 'lb' THEN 1.0/16.0
+              ELSE 1.0 END)) as line_cost
+        FROM recipes r
+        JOIN ingredients i ON r.ingredient_id = i.id
+        WHERE r.restaurant_id = ${restaurantId}
+        ORDER BY r.menu_item_id, i.name
+      `;
+
+      // Group by menu_item_id
+      const grouped: Record<string, typeof recipes> = {};
+      for (const r of recipes) {
+        const mid = (r as any).menu_item_id;
+        if (!grouped[mid]) grouped[mid] = [];
+        grouped[mid].push(r);
+      }
+
+      return NextResponse.json({ recipes_by_item: grouped });
+    }
 
     if (!menuItemId) {
       return NextResponse.json(

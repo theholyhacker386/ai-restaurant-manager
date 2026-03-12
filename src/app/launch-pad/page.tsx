@@ -21,6 +21,19 @@ interface LaunchPadData {
   totalMenuItems: number;
 }
 
+interface ReadinessData {
+  ready: boolean;
+  score: number;
+  checks: {
+    recipesComplete: { pass: boolean; done: number; total: number };
+    suppliersAssigned: { pass: boolean; done: number; total: number };
+    ingredientsPriced: { pass: boolean; done: number; total: number };
+    businessHoursSet: { pass: boolean };
+    costTargetsSet: { pass: boolean };
+    categoriesSet: { pass: boolean };
+  };
+}
+
 const INITIAL_DATA: LaunchPadData = {
   restaurantName: "Your Restaurant",
   menuItemCount: 0,
@@ -37,9 +50,23 @@ const INITIAL_DATA: LaunchPadData = {
   totalMenuItems: 0,
 };
 
+const INITIAL_READINESS: ReadinessData = {
+  ready: false,
+  score: 0,
+  checks: {
+    recipesComplete: { pass: false, done: 0, total: 0 },
+    suppliersAssigned: { pass: false, done: 0, total: 0 },
+    ingredientsPriced: { pass: false, done: 0, total: 0 },
+    businessHoursSet: { pass: false },
+    costTargetsSet: { pass: false },
+    categoriesSet: { pass: false },
+  },
+};
+
 export default function LaunchPadPage() {
   const router = useRouter();
   const [data, setData] = useState<LaunchPadData>(INITIAL_DATA);
+  const [readiness, setReadiness] = useState<ReadinessData>(INITIAL_READINESS);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,12 +75,13 @@ export default function LaunchPadPage() {
 
   async function fetchAllData() {
     try {
-      // Fetch all data sources in parallel
-      const [settingsRes, onboardingRes, plaidRes, teamRes] = await Promise.allSettled([
+      // Fetch all data sources in parallel, including the new readiness API
+      const [settingsRes, onboardingRes, plaidRes, teamRes, readinessRes] = await Promise.allSettled([
         fetch("/api/settings"),
         fetch("/api/onboarding/complete"),
         fetch("/api/plaid/accounts"),
         fetch("/api/team"),
+        fetch("/api/launch-readiness"),
       ]);
 
       const updated = { ...INITIAL_DATA };
@@ -125,6 +153,12 @@ export default function LaunchPadPage() {
         updated.teamCount = Math.max(0, members.length - 1);
       }
 
+      // Parse launch readiness data
+      if (readinessRes.status === "fulfilled" && readinessRes.value.ok) {
+        const readinessJson = await readinessRes.value.json();
+        setReadiness(readinessJson);
+      }
+
       setData(updated);
     } catch (err) {
       console.error("Failed to load launch pad data:", err);
@@ -162,6 +196,9 @@ export default function LaunchPadPage() {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 pt-5">
+        {/* Readiness Meter */}
+        <ReadinessMeter score={readiness.score} ready={readiness.ready} />
+
         {/* Completed Items Section */}
         <div className="bg-white rounded-xl shadow-sm p-4 mb-5">
           <h2 className="text-xs font-semibold text-porch-brown uppercase tracking-wide mb-3 flex items-center gap-2">
@@ -187,6 +224,52 @@ export default function LaunchPadPage() {
             <CompletedItem text={data.businessHoursSet ? "Business hours set" : "Business hours configured"} />
             <CompletedItem
               text={`Cost targets configured (food: ${data.foodCostTarget}%, labor: ${data.laborCostTarget}%)`}
+            />
+          </div>
+        </div>
+
+        {/* Complete Your Setup — most important section for launch readiness */}
+        <div className="mb-5">
+          <h2 className="text-xs font-semibold text-porch-brown uppercase tracking-wide mb-3 flex items-center gap-2 px-1">
+            Complete Your Setup
+          </h2>
+          <div className="space-y-3">
+            {/* Add Your Recipes */}
+            <ActionCard
+              icon={<span className="text-xl" role="img" aria-label="recipes">&#x1F4CB;</span>}
+              title="Add Your Recipes"
+              description={
+                "Every menu item needs a recipe \u2014 even coffee drinks, smoothies, and sauces. " +
+                "For example: a Latte = 9oz milk + 2oz espresso + 0.75oz vanilla syrup. " +
+                "Without this, we can\u2019t calculate what each item actually costs you to make."
+              }
+              status={
+                readiness.checks.recipesComplete.total > 0
+                  ? `${readiness.checks.recipesComplete.done} of ${readiness.checks.recipesComplete.total} menu items have recipes`
+                  : "No menu items yet"
+              }
+              statusColor={readiness.checks.recipesComplete.pass ? "green" : "gray"}
+              buttonLabel="Add Recipes"
+              onClick={() => router.push("/recipes/wizard")}
+            />
+
+            {/* Assign Ingredient Suppliers */}
+            <ActionCard
+              icon={<span className="text-xl" role="img" aria-label="truck">&#x1F69A;</span>}
+              title="Assign Ingredient Suppliers"
+              description={
+                "Once we know all your ingredients from your recipes, we need to know where you buy each one \u2014 " +
+                "like \u2018milk from Costco\u2019 or \u2018espresso from a local roaster.\u2019 " +
+                "This lets us track prices and build accurate shopping lists."
+              }
+              status={
+                readiness.checks.suppliersAssigned.total > 0
+                  ? `${readiness.checks.suppliersAssigned.done} of ${readiness.checks.suppliersAssigned.total} ingredients have a supplier`
+                  : "No ingredients yet"
+              }
+              statusColor={readiness.checks.suppliersAssigned.pass ? "green" : "gray"}
+              buttonLabel="Assign Suppliers"
+              onClick={() => router.push("/ingredients/sourcing")}
             />
           </div>
         </div>
@@ -239,28 +322,6 @@ export default function LaunchPadPage() {
           </div>
         </div>
 
-        {/* Build Your Recipes */}
-        <div className="mb-5">
-          <h2 className="text-xs font-semibold text-porch-brown uppercase tracking-wide mb-3 flex items-center gap-2 px-1">
-            Build Your Recipes
-          </h2>
-          <div className="space-y-3">
-            <ActionCard
-              icon={<span className="text-xl" role="img" aria-label="recipes">&#x1F4CB;</span>}
-              title="Link Ingredients to Menu Items"
-              description="Tell us what goes into each dish — include exact amounts like ounces, grams, or cups (not just '2 carrots' since sizes vary). This is how we calculate your real cost per plate."
-              status={
-                data.recipesWithItems > 0
-                  ? `${data.recipesWithItems} of ${data.totalMenuItems} items have recipes`
-                  : "No recipes yet"
-              }
-              statusColor={data.recipesWithItems > 0 ? "green" : "gray"}
-              buttonLabel="Build Recipes"
-              onClick={() => router.push("/recipes")}
-            />
-          </div>
-        </div>
-
         {/* Go to Dashboard */}
         <div className="mt-8 mb-6">
           <button
@@ -272,6 +333,75 @@ export default function LaunchPadPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Readiness Meter Component ---- */
+
+function ReadinessMeter({ score, ready }: { score: number; ready: boolean }) {
+  // Determine color based on score
+  const getColor = () => {
+    if (score > 75) return { bar: "bg-green-500", text: "text-green-700", ring: "stroke-green-500" };
+    if (score >= 40) return { bar: "bg-yellow-500", text: "text-yellow-700", ring: "stroke-yellow-500" };
+    return { bar: "bg-red-500", text: "text-red-700", ring: "stroke-red-500" };
+  };
+
+  const colors = getColor();
+
+  // Circle SVG parameters
+  const size = 96;
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const filled = (score / 100) * circumference;
+  const gap = circumference - filled;
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-5 mb-5">
+      <div className="flex items-center gap-5">
+        {/* Circular progress */}
+        <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+          <svg width={size} height={size} className="-rotate-90">
+            {/* Background circle */}
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke="#e5e7eb"
+              strokeWidth={strokeWidth}
+            />
+            {/* Progress circle */}
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              className={colors.ring}
+              strokeWidth={strokeWidth}
+              strokeDasharray={`${filled} ${gap}`}
+              strokeLinecap="round"
+            />
+          </svg>
+          {/* Score text in center */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className={`text-xl font-bold ${colors.text}`}>{score}%</span>
+          </div>
+        </div>
+
+        {/* Label */}
+        <div>
+          <h2 className={`text-lg font-bold ${colors.text}`}>
+            Launch Readiness: {score}%
+          </h2>
+          <p className="text-sm text-porch-brown-light mt-0.5">
+            {ready
+              ? "You're all set! Your restaurant is fully configured."
+              : "Complete the steps below to get the most accurate reports and cost tracking."}
+          </p>
         </div>
       </div>
     </div>

@@ -84,6 +84,73 @@ export async function PUT(
   }
 }
 
+// PATCH - partial update (e.g., just supplier or just pricing)
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { sql, restaurantId } = await getTenantDb();
+    const { id } = await params;
+    const body = await request.json();
+
+    // Collect only the fields that were provided
+    const values: Record<string, unknown> = {};
+
+    if (body.supplier !== undefined) {
+      values.supplier = body.supplier;
+    }
+    if (body.cost_per_unit !== undefined) {
+      values.cost_per_unit = body.cost_per_unit;
+    }
+    if (body.package_size !== undefined) {
+      values.package_size = body.package_size;
+    }
+    if (body.package_unit !== undefined) {
+      values.package_unit = body.package_unit;
+    }
+    if (body.package_price !== undefined) {
+      values.package_price = body.package_price;
+    }
+
+    if (Object.keys(values).length === 0) {
+      return NextResponse.json(
+        { error: "No fields to update" },
+        { status: 400 }
+      );
+    }
+
+    // Use individual update queries for each field since neon tagged template
+    // doesn't support dynamic column names easily
+    if (values.supplier !== undefined) {
+      await sql`UPDATE ingredients SET supplier = ${values.supplier as string}, updated_at = NOW() WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
+    }
+    if (values.cost_per_unit !== undefined) {
+      await sql`UPDATE ingredients SET cost_per_unit = ${values.cost_per_unit as number}, updated_at = NOW() WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
+    }
+    if (values.package_size !== undefined) {
+      await sql`UPDATE ingredients SET package_size = ${values.package_size as number}, updated_at = NOW() WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
+    }
+    if (values.package_unit !== undefined) {
+      await sql`UPDATE ingredients SET package_unit = ${values.package_unit as string}, updated_at = NOW() WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
+    }
+    if (values.package_price !== undefined) {
+      await sql`UPDATE ingredients SET package_price = ${values.package_price as number}, updated_at = NOW() WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
+    }
+
+    // Fetch the updated ingredient to return
+    const rows = await sql`SELECT * FROM ingredients WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
+
+    return NextResponse.json({ ingredient: rows[0] });
+  } catch (error: unknown) {
+    console.error("Error patching ingredient:", error);
+    return NextResponse.json(
+      { error: "Failed to update ingredient" },
+      { status: 500 }
+    );
+  }
+}
+
 // DELETE - remove an ingredient
 export async function DELETE(
   request: NextRequest,
