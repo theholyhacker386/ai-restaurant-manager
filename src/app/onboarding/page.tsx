@@ -52,13 +52,16 @@ function generateId() {
 const CHECKLIST_REQUIRED = [
   { id: "menu", icon: "\uD83C\uDF7D\uFE0F", label: "Menu with prices", desc: "A printed menu, PDF, or photo. Or be ready to list your items and prices." },
   { id: "recipes", icon: "\uD83D\uDCCB", label: "Recipes for every menu item", desc: "We need to know what goes into each item you sell. For example: a Latte = 9oz milk + 2oz espresso + 0.75oz vanilla syrup. Even coffee drinks, sauces, and blends need recipes so we can calculate your true cost per item." },
-  { id: "suppliers", icon: "\uD83D\uDED2", label: "List of suppliers", desc: "The stores, distributors, and websites you buy food and supplies from. We'll automatically search the web for pricing from each supplier!" },
+  { id: "suppliers", icon: "\uD83D\uDED2", label: "Know your suppliers & what you buy from each", desc: "Which stores or distributors do you buy from, and what do you get from each one? For example: milk and cheese from Costco, meat from Sysco, dry goods from Restaurant Depot. We'll automatically search the web for pricing!" },
   { id: "receipts", icon: "\uD83E\uDDFE", label: "Receipts for select suppliers", desc: "We'll automatically pull prices from suppliers that post them online (Walmart, Costco, etc.). For suppliers that don't, we'll let you know which ones need receipts or invoices." },
 ];
 
 const CHECKLIST_OPTIONAL = [
   { id: "bank", icon: "\uD83C\uDFE6", label: "Bank login info", desc: "We'll connect your bank account to automatically track your expenses and income. Have your online banking login ready." },
   { id: "spreadsheet", icon: "\uD83D\uDCCA", label: "Cost spreadsheet or P&L", desc: "If you track costs in a spreadsheet, have it ready to upload. CSV, Excel, or PDF." },
+  { id: "employees", icon: "\uD83D\uDC65", label: "Employee names, roles & pay rates", desc: "If you have staff, know their names, positions (cook, server, etc.), and hourly pay. This powers your labor cost tracking and scheduling." },
+  { id: "inventory", icon: "\uD83D\uDCE6", label: "Current inventory counts", desc: "A rough count of what you have on hand right now (cases of chicken, gallons of milk, etc.). This helps us build accurate shopping lists from day one." },
+  { id: "tax", icon: "\uD83D\uDCB0", label: "Your state & sales tax rate", desc: "Know what state you're in and your sales tax percentage. This lets us track how much tax you're collecting and when it's due." },
 ];
 
 /* ── Data Tag Parsing ──────────────────────────────────── */
