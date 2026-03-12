@@ -15,6 +15,11 @@
 **Decision**: Add categories + business hours to the AI chat flow. Move bank connection, POS setup, team members, and recipe building to a post-onboarding "Launch Pad" page.
 **Rationale**: Categories and hours work well conversationally (simple Q&A). Bank/POS need interactive widgets (OAuth, Plaid Link). Recipes are too complex for chat (68 items × 6 ingredients = 400+ links). The Launch Pad gives clear next-step guidance instead of dumping users on the dashboard with no direction.
 
+## 2026-03-12 - Launch Readiness: Recipes + Ingredient Sourcing (3-task build)
+**Context**: Platform can't calculate food costs without knowing what goes into every menu item AND which supplier provides each ingredient. Launch Pad exists but doesn't clearly communicate this or provide streamlined tools.
+**Decision**: Build 3 components: (1) Launch Readiness API + enhanced Launch Pad with examples and live progress, (2) Recipe Wizard for fast recipe entry across all menu items from one page, (3) Ingredient Sourcing page for bulk supplier assignment with auto price lookup. No schema changes needed — existing tables support everything.
+**Rationale**: Current recipe builder requires navigating to each menu item individually (too slow for 50+ items). No supplier assignment UI exists beyond editing each ingredient. Restaurant owners need concrete examples (e.g., "Latte = 9oz milk + 2oz espresso + 0.75oz syrup") to understand WHY recipes matter. LAUNCH-2 and LAUNCH-3 can run in parallel after LAUNCH-1.
+
 ## 2026-03-05 - Recipes NOT in Onboarding Chat
 **Context**: Porch Financial has 410 recipe links (ingredient→menu item). Could try to capture these during onboarding.
 **Decision**: Exclude recipes from onboarding entirely. Add to Launch Pad as a post-onboarding task.
