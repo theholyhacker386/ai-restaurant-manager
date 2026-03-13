@@ -68,6 +68,37 @@ const CHECKLIST_OPTIONAL = [
   { id: "tax", icon: "\uD83D\uDCB0", label: "Your state & sales tax rate", desc: "Know what state you're in and your sales tax percentage. This lets us track how much tax you're collecting and when it's due." },
 ];
 
+/* ── Non-Supplier Keywords (filter out non-food merchants) ── */
+
+const NON_SUPPLIER_KEYWORDS = [
+  "internal revenue", "irs", "dept revenue", "tax", "fpl", "electric", "utilities",
+  "insurance", "progressive", "geico", "allstate", "state farm",
+  "spectrum", "comcast", "att", "t-mobile", "verizon",
+  "mortgage", "rent", "properties", "car payment", "loan",
+  "apple", "google", "facebook", "meta", "adobe", "netflix", "hulu", "spotify",
+  "amazon prime video", "adt", "security", "home shield",
+  "square inc", "stripe", "paypal",
+  "seaworld", "disney", "universal",
+];
+
+function extractSuppliersFromTransactions(txns: { amount: number; merchant_name?: string; name?: string }[]): string[] {
+  const merchantCounts: Record<string, number> = {};
+  for (const t of txns) {
+    if (t.amount > 0) {
+      const name = t.merchant_name || t.name;
+      if (!name) continue;
+      const lower = name.toLowerCase();
+      if (!NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw))) {
+        merchantCounts[name] = (merchantCounts[name] || 0) + 1;
+      }
+    }
+  }
+  return Object.entries(merchantCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([name]) => name);
+}
+
 /* ── Data Tag Parsing ──────────────────────────────────── */
 
 function parseDataTags(text: string, session: SessionData): { cleanText: string; updatedSession: SessionData; email?: string } {
@@ -251,6 +282,7 @@ function OnboardingChat() {
   const [accountPickerMsgId, setAccountPickerMsgId] = useState("");
   const [bankAccounts, setBankAccounts] = useState<{ account_id: string; name: string; type: string; subtype: string; mask: string; balance: number }[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
+  const [detectedSuppliers, setDetectedSuppliers] = useState<string[]>([]);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -782,37 +814,11 @@ function OnboardingChat() {
             if (acctRes.ok) {
               const acctData = await acctRes.json();
               const txns = acctData.transactions || [];
-
-              const NON_SUPPLIER_KEYWORDS = [
-                "internal revenue", "irs", "dept revenue", "tax", "fpl", "electric", "utilities",
-                "insurance", "progressive", "geico", "allstate", "state farm",
-                "spectrum", "comcast", "att", "t-mobile", "verizon",
-                "mortgage", "rent", "properties", "car payment", "loan",
-                "apple", "google", "facebook", "meta", "adobe", "netflix", "hulu", "spotify",
-                "amazon prime video", "adt", "security", "home shield",
-                "square inc", "stripe", "paypal",
-                "seaworld", "disney", "universal",
-              ];
-
-              const merchantCounts: Record<string, number> = {};
-              for (const t of txns) {
-                if (t.amount > 0) {
-                  const name = t.merchant_name || t.name;
-                  if (!name) continue;
-                  const lower = name.toLowerCase();
-                  if (!NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw))) {
-                    merchantCounts[name] = (merchantCounts[name] || 0) + 1;
-                  }
-                }
-              }
-
-              const detected = Object.entries(merchantCounts)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 20)
-                .map(([name]) => name);
+              const detected = extractSuppliersFromTransactions(txns);
 
               if (detected.length > 0) {
-                detectedSuppliersContext = ` We detected these merchants from bank transactions: ${detected.join(", ")}. Present ONLY these names and ask which are food/ingredient suppliers. Do NOT show [SHOW_SUPPLIER_PICKER] — do NOT suggest any names not in this list. Use [ADD_SUPPLIERS:[...]] with confirmed list.`;
+                setDetectedSuppliers(detected);
+                detectedSuppliersContext = ` We detected these merchants from bank transactions: ${detected.join(", ")}. Tell the user we found these from their bank and show [SHOW_SUPPLIER_PICKER] so they can check which ones are food/ingredient suppliers. Do NOT list them in text — the picker card will show them.`;
               }
             }
           } catch {
@@ -1275,53 +1281,21 @@ function OnboardingChat() {
       if (accountsRes.ok) {
         const accountsData = await accountsRes.json();
         const txns = accountsData.transactions || [];
+        const detected = extractSuppliersFromTransactions(txns);
 
-        // Non-supplier categories to filter out (utilities, taxes, subscriptions, etc.)
-        const NON_SUPPLIER_KEYWORDS = [
-          "internal revenue", "irs", "dept revenue", "tax", "fpl", "electric", "utilities",
-          "insurance", "progressive", "geico", "allstate", "state farm",
-          "spectrum", "comcast", "att", "t-mobile", "verizon",
-          "mortgage", "rent", "properties", "car payment", "loan",
-          "apple", "google", "facebook", "meta", "adobe", "netflix", "hulu", "spotify",
-          "amazon prime video", "adt", "security", "home shield",
-          "square inc", "stripe", "paypal",
-          "seaworld", "disney", "universal",
-        ];
-
-        // Extract unique merchant names from transactions (expenses only = positive amounts)
-        const merchantCounts: Record<string, number> = {};
-        for (const t of txns) {
-          if (t.amount > 0) {
-            const name = t.merchant_name || t.name;
-            if (!name) continue;
-            const lower = name.toLowerCase();
-            const isNonSupplier = NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw));
-            if (!isNonSupplier) {
-              merchantCounts[name] = (merchantCounts[name] || 0) + 1;
-            }
-          }
-        }
-
-        // Sort by frequency
-        const detectedSuppliers = Object.entries(merchantCounts)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 20)
-          .map(([name]) => name);
-
-        if (detectedSuppliers.length > 0) {
+        if (detected.length > 0) {
+          setDetectedSuppliers(detected);
           sendMessage(
-            `[SYSTEM: Bank connected successfully! We analyzed the business account transactions and found these merchants the restaurant buys from regularly: ${detectedSuppliers.join(", ")}. ` +
-            `Present ONLY these names to the user — do NOT add any names that aren't in this list. Ask: "Looking at your bank transactions, it looks like you buy from these places: [list them nicely]. ` +
-            `Which of these are your food/ingredient suppliers? And are there any suppliers I'm missing?" Let them confirm the food-related ones. ` +
-            `Use [ADD_SUPPLIERS:[...]] with their confirmed list.]`
+            `[SYSTEM: Bank connected successfully! We found merchants from the business account. ` +
+            `Tell the user: "Your bank is connected! I found some places you buy from. Check off your food and paper suppliers below, and add any I missed." ` +
+            `Then include [SHOW_SUPPLIER_PICKER] — the picker will show the detected suppliers as checkboxes. Do NOT list supplier names in your message text.]`
           );
         } else {
           sendMessage(
             `[SYSTEM: Bank connected successfully! However, transaction data is still loading — this is normal and can take a few minutes. ` +
             `Tell the user: "Your bank is connected! It takes a little while for your transaction history to load — ` +
             `we'll automatically detect your suppliers from your spending once it's ready. For now, let's keep moving!" ` +
-            `Do NOT suggest any supplier names — you don't have transaction data yet. Do NOT mention any specific company names. ` +
-            `Just move on to the next onboarding step. We'll come back to suppliers later when the transaction data is available.]`
+            `Do NOT suggest any supplier names. Just move on to the next onboarding step.]`
           );
         }
       }
@@ -1692,7 +1666,7 @@ function OnboardingChat() {
                   {/* Inline SupplierPicker */}
                   {showSupplierPicker && msg.id === supplierPickerMsgId && (
                     <div className="mt-3">
-                      <SupplierPicker onConfirm={handleSupplierConfirm} />
+                      <SupplierPicker onConfirm={handleSupplierConfirm} detectedSuppliers={detectedSuppliers.length > 0 ? detectedSuppliers : undefined} />
                     </div>
                   )}
                   {/* Inline Square Connect */}

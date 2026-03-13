@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from "react";
 
 interface SupplierPickerProps {
   onConfirm: (selected: string[]) => void;
+  detectedSuppliers?: string[];
 }
 
 interface DirectorySupplier {
@@ -16,22 +17,22 @@ interface DirectorySupplier {
   usage_count: number;
 }
 
-/* ── Popular Suppliers ─────────────────────────────── */
+/* ── Popular Suppliers (fallback when no bank data) ── */
 
 const POPULAR_SUPPLIERS = [
-  { name: "Walmart", emoji: "🏬" },
-  { name: "Sam's Club", emoji: "🛒" },
-  { name: "Costco", emoji: "📦" },
-  { name: "Restaurant Depot", emoji: "🍽️" },
-  { name: "Sysco", emoji: "🚛" },
-  { name: "US Foods", emoji: "🇺🇸" },
-  { name: "Gordon Food Service", emoji: "🏭" },
-  { name: "Chef's Warehouse", emoji: "👨‍🍳" },
+  { name: "Walmart", emoji: "\uD83C\uDFEC" },
+  { name: "Sam's Club", emoji: "\uD83D\uDED2" },
+  { name: "Costco", emoji: "\uD83D\uDCE6" },
+  { name: "Restaurant Depot", emoji: "\uD83C\uDF7D\uFE0F" },
+  { name: "Sysco", emoji: "\uD83D\uDE9B" },
+  { name: "US Foods", emoji: "\uD83C\uDDFA\uD83C\uDDF8" },
+  { name: "Gordon Food Service", emoji: "\uD83C\uDFED" },
+  { name: "Chef's Warehouse", emoji: "\uD83D\uDC68\u200D\uD83C\uDF73" },
 ];
 
 /* ── Component ─────────────────────────────────────── */
 
-export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
+export default function SupplierPicker({ onConfirm, detectedSuppliers }: SupplierPickerProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [customSuppliers, setCustomSuppliers] = useState<string[]>([]);
   const [searchInput, setSearchInput] = useState("");
@@ -40,6 +41,8 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
   const [confirmed, setConfirmed] = useState(false);
   const searchTimeout = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const hasDetected = detectedSuppliers && detectedSuppliers.length > 0;
 
   // Fetch autocomplete suggestions from the shared directory
   useEffect(() => {
@@ -56,7 +59,6 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
         const res = await fetch(`/api/supplier-directory?q=${encodeURIComponent(searchInput)}`);
         if (res.ok) {
           const data = await res.json();
-          // Filter out already selected / popular ones
           const allSelected = new Set([
             ...Array.from(selected),
             ...customSuppliers.map((s) => s.toLowerCase()),
@@ -77,7 +79,7 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
     };
   }, [searchInput, selected, customSuppliers]);
 
-  function togglePopular(name: string) {
+  function toggleSupplier(name: string) {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
@@ -90,21 +92,19 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
     const trimmed = name.trim();
     if (!trimmed) return;
 
-    // Don't add duplicates
     const lowerName = trimmed.toLowerCase();
     if (
       customSuppliers.some((s) => s.toLowerCase() === lowerName) ||
-      POPULAR_SUPPLIERS.some((s) => s.name.toLowerCase() === lowerName && selected.has(s.name))
+      selected.has(trimmed)
     ) {
       return;
     }
 
-    // If it matches a popular supplier, select that instead
-    const popularMatch = POPULAR_SUPPLIERS.find(
-      (s) => s.name.toLowerCase() === lowerName
-    );
-    if (popularMatch) {
-      setSelected((prev) => new Set([...prev, popularMatch.name]));
+    // Check if it matches any existing supplier in the list
+    const allNames = hasDetected ? detectedSuppliers! : POPULAR_SUPPLIERS.map(s => s.name);
+    const match = allNames.find((s) => s.toLowerCase() === lowerName);
+    if (match) {
+      setSelected((prev) => new Set([...prev, match]));
     } else {
       setCustomSuppliers((prev) => [...prev, trimmed]);
     }
@@ -124,21 +124,8 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
 
     setConfirmed(true);
 
-    // Save custom suppliers to the directory for future users
-    for (const name of customSuppliers) {
-      try {
-        await fetch("/api/supplier-directory", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name }),
-        });
-      } catch {
-        // non-critical
-      }
-    }
-
-    // Also increment usage for popular suppliers
-    for (const name of Array.from(selected)) {
+    // Save suppliers to the directory for future users
+    for (const name of all) {
       try {
         await fetch("/api/supplier-directory", {
           method: "POST",
@@ -158,7 +145,7 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
     return (
       <div className="bg-green-50 border border-green-200 rounded-xl p-4 my-2">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-green-600 text-lg">✓</span>
+          <span className="text-green-600 text-lg">{"\u2713"}</span>
           <span className="text-sm font-medium text-green-800">
             {all.length} supplier{all.length !== 1 ? "s" : ""} selected
           </span>
@@ -182,44 +169,85 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
   return (
     <div className="bg-white border border-porch-cream-dark rounded-xl p-4 my-2 shadow-sm">
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-xl">🛒</span>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-xl">{hasDetected ? "\uD83C\uDFE6" : "\uD83D\uDED2"}</span>
         <span className="text-sm font-semibold text-porch-brown">
-          Where do you buy supplies?
+          {hasDetected ? "Suppliers found from your bank" : "Where do you buy supplies?"}
         </span>
       </div>
+      {hasDetected && (
+        <p className="text-xs text-porch-brown-light mb-3 ml-8">
+          Check the ones that are food or paper suppliers. Add any we missed at the bottom.
+        </p>
+      )}
 
-      {/* Popular supplier grid */}
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        {POPULAR_SUPPLIERS.map((supplier) => {
-          const isSelected = selected.has(supplier.name);
-          return (
-            <button
-              key={supplier.name}
-              onClick={() => togglePopular(supplier.name)}
-              className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                isSelected
-                  ? "border-porch-teal bg-porch-teal/10 text-porch-teal font-medium"
-                  : "border-porch-cream-dark hover:border-porch-teal/50 text-porch-brown"
-              }`}
-            >
-              <span className="text-base">{supplier.emoji}</span>
-              <span className="flex-1 truncate">{supplier.name}</span>
-              {isSelected && (
-                <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {/* Supplier list */}
+      {hasDetected ? (
+        /* Detected suppliers — vertical checkbox list */
+        <div className="space-y-1.5 mb-3 max-h-72 overflow-y-auto">
+          {detectedSuppliers!.map((name) => {
+            const isSelected = selected.has(name);
+            return (
+              <button
+                key={name}
+                onClick={() => toggleSupplier(name)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                  isSelected
+                    ? "border-porch-teal bg-porch-teal/10"
+                    : "border-gray-200 bg-white hover:border-gray-300"
+                }`}
+              >
+                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                  isSelected
+                    ? "border-porch-teal bg-porch-teal"
+                    : "border-gray-300"
+                }`}>
+                  {isSelected && (
+                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+                <span className={`flex-1 ${isSelected ? "text-porch-teal font-medium" : "text-porch-brown"}`}>
+                  {name}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        /* Fallback: Popular supplier grid */
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {POPULAR_SUPPLIERS.map((supplier) => {
+            const isSelected = selected.has(supplier.name);
+            return (
+              <button
+                key={supplier.name}
+                onClick={() => toggleSupplier(supplier.name)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                  isSelected
+                    ? "border-porch-teal bg-porch-teal/10 text-porch-teal font-medium"
+                    : "border-porch-cream-dark hover:border-porch-teal/50 text-porch-brown"
+                }`}
+              >
+                <span className="text-base">{supplier.emoji}</span>
+                <span className="flex-1 truncate">{supplier.name}</span>
+                {isSelected && (
+                  <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path
+                      fillRule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      {/* Custom suppliers */}
+      {/* Custom suppliers chips */}
       {customSuppliers.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">
           {customSuppliers.map((name) => (
@@ -232,7 +260,7 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
                 onClick={() => removeCustom(name)}
                 className="hover:text-red-500 ml-0.5"
               >
-                ×
+                {"\u00D7"}
               </button>
             </span>
           ))}
@@ -255,7 +283,7 @@ export default function SupplierPicker({ onConfirm }: SupplierPickerProps) {
           onFocus={() => {
             if (suggestions.length > 0) setShowSuggestions(true);
           }}
-          placeholder="Add another supplier..."
+          placeholder={hasDetected ? "Add a supplier we missed..." : "Add another supplier..."}
           className="w-full px-3 py-2 text-sm border border-porch-cream-dark rounded-lg focus:outline-none focus:border-porch-teal focus:ring-1 focus:ring-porch-teal bg-porch-warm-white"
         />
 
