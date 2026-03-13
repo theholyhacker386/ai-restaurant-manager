@@ -246,6 +246,10 @@ function OnboardingChat() {
   const [bankConnectMsgId, setBankConnectMsgId] = useState("");
   const [plaidLinkToken, setPlaidLinkToken] = useState<string | null>(null);
   const [bankConnecting, setBankConnecting] = useState(false);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
+  const [accountPickerMsgId, setAccountPickerMsgId] = useState("");
+  const [bankAccounts, setBankAccounts] = useState<{ account_id: string; name: string; type: string; subtype: string; mask: string; balance: number }[]>([]);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1130,15 +1134,99 @@ function OnboardingChat() {
         }),
       });
       if (!res.ok) throw new Error("Exchange failed");
+      const exchangeData = await res.json();
+      const accounts = exchangeData.accounts || [];
 
-      // Sync transactions
+      // Start syncing transactions in background
+      fetch("/api/plaid/sync-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+
+      if (accounts.length > 1) {
+        // Multiple accounts — ask user which ones are for the restaurant
+        setBankAccounts(accounts);
+        // Auto-select accounts with "business" in the name
+        const autoSelected = new Set<string>();
+        for (const acct of accounts) {
+          if (acct.name?.toLowerCase().includes("business")) {
+            autoSelected.add(acct.account_id);
+          }
+        }
+        setSelectedAccountIds(autoSelected);
+
+        // Show account picker inline
+        const pickerMsgId = generateId();
+        const pickerMsg: Message = {
+          id: pickerMsgId,
+          role: "assistant",
+          content: "Great, your bank is connected! I see multiple accounts — which one(s) does your restaurant use? Pick your business account(s) below so I only look at the right transactions.",
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, pickerMsg]);
+        setShowAccountPicker(true);
+        setAccountPickerMsgId(pickerMsgId);
+      } else {
+        // Single account — auto-mark as business and proceed to supplier detection
+        if (accounts.length === 1) {
+          await fetch("/api/plaid/mark-business-accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accountIds: [accounts[0].account_id], userId }),
+          });
+        }
+        await detectSuppliersFromTransactions();
+      }
+    } catch {
+      sendMessage("[SYSTEM: Bank connection was completed but we had trouble syncing transactions. Tell the user the bank is connected and they can sync transactions later from the Launch Pad.]");
+    } finally {
+      setBankConnecting(false);
+      setShowBankConnect(false);
+      setPlaidLinkToken(null);
+    }
+  }
+
+  async function handleAccountPickerConfirm() {
+    if (selectedAccountIds.size === 0) return;
+
+    setShowAccountPicker(false);
+
+    // Mark selected accounts as business
+    await fetch("/api/plaid/mark-business-accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountIds: Array.from(selectedAccountIds), userId }),
+    });
+
+    // Now detect suppliers from the selected accounts' transactions
+    await detectSuppliersFromTransactions();
+  }
+
+  function toggleAccountSelection(accountId: string) {
+    setSelectedAccountIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) {
+        next.delete(accountId);
+      } else {
+        next.add(accountId);
+      }
+      return next;
+    });
+  }
+
+  async function detectSuppliersFromTransactions() {
+    try {
+      // Give Plaid a moment to finish syncing, then fetch
+      await new Promise((r) => setTimeout(r, 2000));
+
+      // Try syncing again in case initial sync is now ready
       await fetch("/api/plaid/sync-transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
       });
 
-      // Fetch transactions and extract unique merchant/supplier names
       const accountsRes = await fetch(`/api/plaid/accounts${userId ? `?userId=${userId}` : ""}`);
       if (accountsRes.ok) {
         const accountsData = await accountsRes.json();
@@ -1149,7 +1237,7 @@ function OnboardingChat() {
           "internal revenue", "irs", "dept revenue", "tax", "fpl", "electric", "utilities",
           "insurance", "progressive", "geico", "allstate", "state farm",
           "spectrum", "comcast", "att", "t-mobile", "verizon",
-          "mortgage", "rent", "properties", "kia motors", "car payment", "loan",
+          "mortgage", "rent", "properties", "car payment", "loan",
           "apple", "google", "facebook", "meta", "adobe", "netflix", "hulu", "spotify",
           "amazon prime video", "adt", "security", "home shield",
           "square inc", "stripe", "paypal",
@@ -1162,7 +1250,6 @@ function OnboardingChat() {
           if (t.amount > 0) {
             const name = t.merchant_name || t.name;
             if (!name) continue;
-            // Filter out non-supplier merchants
             const lower = name.toLowerCase();
             const isNonSupplier = NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw));
             if (!isNonSupplier) {
@@ -1171,7 +1258,7 @@ function OnboardingChat() {
           }
         }
 
-        // Sort by frequency (most transactions = most likely a regular supplier)
+        // Sort by frequency
         const detectedSuppliers = Object.entries(merchantCounts)
           .sort((a, b) => b[1] - a[1])
           .slice(0, 20)
@@ -1195,11 +1282,7 @@ function OnboardingChat() {
         }
       }
     } catch {
-      sendMessage("[SYSTEM: Bank connection was completed but we had trouble syncing transactions. Tell the user the bank is connected and they can sync transactions later from the Launch Pad.]");
-    } finally {
-      setBankConnecting(false);
-      setShowBankConnect(false);
-      setPlaidLinkToken(null);
+      sendMessage("[SYSTEM: Bank is connected. We had trouble loading transactions right now, but they'll sync automatically. Move on to the next onboarding step.]");
     }
   }
 
@@ -1634,6 +1717,61 @@ function OnboardingChat() {
                           </div>
                         </div>
                       )}
+                    </div>
+                  )}
+                  {/* Inline Account Picker */}
+                  {showAccountPicker && msg.id === accountPickerMsgId && (
+                    <div className="mt-3 bg-porch-cream rounded-xl p-4 border border-porch-cream-dark">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 bg-porch-teal rounded-lg flex items-center justify-center">
+                          <span className="text-white text-xl" role="img" aria-label="bank">&#x1F4B3;</span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-porch-brown">Select Business Account(s)</p>
+                          <p className="text-xs text-porch-brown-light">Which account(s) does your restaurant use?</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2 mb-3">
+                        {bankAccounts.map((acct) => (
+                          <button
+                            key={acct.account_id}
+                            onClick={() => toggleAccountSelection(acct.account_id)}
+                            className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                              selectedAccountIds.has(acct.account_id)
+                                ? "border-porch-teal bg-porch-teal/10"
+                                : "border-gray-200 bg-white hover:border-gray-300"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-porch-brown">{acct.name}</p>
+                                <p className="text-xs text-porch-brown-light">{acct.type} {acct.subtype ? `\u2022 ${acct.subtype}` : ""} {acct.mask ? `\u2022 \u2022\u2022\u2022${acct.mask}` : ""}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {acct.balance != null && (
+                                  <span className="text-sm text-porch-brown-light">${Number(acct.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                )}
+                                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                                  selectedAccountIds.has(acct.account_id)
+                                    ? "border-porch-teal bg-porch-teal"
+                                    : "border-gray-300"
+                                }`}>
+                                  {selectedAccountIds.has(acct.account_id) && (
+                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={handleAccountPickerConfirm}
+                        disabled={selectedAccountIds.size === 0}
+                        className="w-full bg-porch-teal text-white py-2 rounded-lg text-sm font-medium hover:bg-porch-teal-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {selectedAccountIds.size === 0 ? "Select at least one account" : `Use ${selectedAccountIds.size === 1 ? "this account" : `these ${selectedAccountIds.size} accounts`}`}
+                      </button>
                     </div>
                   )}
                 </div>
