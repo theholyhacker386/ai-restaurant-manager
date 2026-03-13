@@ -1143,30 +1143,53 @@ function OnboardingChat() {
       if (accountsRes.ok) {
         const accountsData = await accountsRes.json();
         const txns = accountsData.transactions || [];
+
+        // Non-supplier categories to filter out (utilities, taxes, subscriptions, etc.)
+        const NON_SUPPLIER_KEYWORDS = [
+          "internal revenue", "irs", "dept revenue", "tax", "fpl", "electric", "utilities",
+          "insurance", "progressive", "geico", "allstate", "state farm",
+          "spectrum", "comcast", "att", "t-mobile", "verizon",
+          "mortgage", "rent", "properties", "kia motors", "car payment", "loan",
+          "apple", "google", "facebook", "meta", "adobe", "netflix", "hulu", "spotify",
+          "amazon prime video", "adt", "security", "home shield",
+          "square inc", "stripe", "paypal",
+          "seaworld", "disney", "universal",
+        ];
+
         // Extract unique merchant names from transactions (expenses only = positive amounts)
-        const merchantSet = new Set<string>();
+        const merchantCounts: Record<string, number> = {};
         for (const t of txns) {
-          if (t.amount > 0 && t.merchant_name) {
-            merchantSet.add(t.merchant_name);
-          } else if (t.amount > 0 && t.name) {
-            merchantSet.add(t.name);
+          if (t.amount > 0) {
+            const name = t.merchant_name || t.name;
+            if (!name) continue;
+            // Filter out non-supplier merchants
+            const lower = name.toLowerCase();
+            const isNonSupplier = NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw));
+            if (!isNonSupplier) {
+              merchantCounts[name] = (merchantCounts[name] || 0) + 1;
+            }
           }
         }
-        const detectedSuppliers = Array.from(merchantSet).slice(0, 30);
+
+        // Sort by frequency (most transactions = most likely a regular supplier)
+        const detectedSuppliers = Object.entries(merchantCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 20)
+          .map(([name]) => name);
 
         if (detectedSuppliers.length > 0) {
           sendMessage(
-            `[SYSTEM: Bank connected successfully! We analyzed the transactions and found these potential suppliers: ${detectedSuppliers.join(", ")}. ` +
-            `Present this list to the user and ask: "Looking at your recent transactions, it looks like you buy from these places: [list them nicely]. ` +
-            `Does that look right? Are there any suppliers I'm missing?" Let them confirm and add any missing ones. ` +
-            `Use [ADD_SUPPLIERS:[...]] with their confirmed list. Then use [SHOW_SUPPLIER_PICKER] ONLY if they want to add more suppliers not in the list.]`
+            `[SYSTEM: Bank connected successfully! We analyzed the business account transactions and found these merchants the restaurant buys from regularly: ${detectedSuppliers.join(", ")}. ` +
+            `Present ONLY these names to the user — do NOT add any names that aren't in this list. Ask: "Looking at your bank transactions, it looks like you buy from these places: [list them nicely]. ` +
+            `Which of these are your food/ingredient suppliers? And are there any suppliers I'm missing?" Let them confirm the food-related ones. ` +
+            `Use [ADD_SUPPLIERS:[...]] with their confirmed list.]`
           );
         } else {
           sendMessage(
             `[SYSTEM: Bank connected successfully! However, transaction data is still loading — this is normal and can take a few minutes. ` +
             `Tell the user: "Your bank is connected! It takes a little while for your transaction history to load — ` +
             `we'll automatically detect your suppliers from your spending once it's ready. For now, let's keep moving!" ` +
-            `Do NOT suggest any supplier names — you don't have transaction data yet. Do NOT mention Walmart, Sysco, US Foods, or any specific companies. ` +
+            `Do NOT suggest any supplier names — you don't have transaction data yet. Do NOT mention any specific company names. ` +
             `Just move on to the next onboarding step. We'll come back to suppliers later when the transaction data is available.]`
           );
         }

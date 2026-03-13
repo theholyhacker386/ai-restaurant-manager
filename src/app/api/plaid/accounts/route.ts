@@ -29,19 +29,27 @@ export async function GET(request: NextRequest) {
       ORDER BY pa.created_at DESC
     `;
 
-    // Get transactions for this restaurant (with optional date filter)
+    // Check if any accounts are marked as business — if so, only pull transactions from those
+    const businessAccounts = accounts.filter((a: any) => a.is_business);
+    const accountIdsToUse = businessAccounts.length > 0
+      ? businessAccounts.map((a: any) => a.account_id)
+      : accounts.map((a: any) => a.account_id);
+
+    // Get transactions for this restaurant (filtered to business accounts if available)
     let transactions;
     if (startDate && endDate) {
       transactions = await sql`
         SELECT * FROM plaid_transactions
         WHERE date >= ${startDate} AND date <= ${endDate} AND pending = false
           AND restaurant_id = ${restaurantId}
+          AND plaid_account_id = ANY(${accountIdsToUse})
         ORDER BY date DESC
       `;
     } else {
       transactions = await sql`
         SELECT * FROM plaid_transactions
         WHERE pending = false AND restaurant_id = ${restaurantId}
+          AND plaid_account_id = ANY(${accountIdsToUse})
         ORDER BY date DESC
       `;
     }
