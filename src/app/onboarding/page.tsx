@@ -58,6 +58,7 @@ const CHECKLIST_REQUIRED = [
   { id: "menu", icon: "\uD83C\uDF7D\uFE0F", label: "Menu with prices", desc: "A printed menu, PDF, or photo. Or be ready to list your items and prices." },
   { id: "recipes", icon: "\uD83D\uDCCB", label: "Recipes for every menu item", desc: "We need to know what goes into each item you sell. For example: a Latte = 9oz milk + 20g coffee beans + 0.75oz vanilla syrup. Even coffee drinks, sauces, and blends need recipes so we can calculate your true cost per item." },
   { id: "bank", icon: "\uD83C\uDFE6", label: "Bank login info", desc: "We\u2019ll connect your bank account to automatically find your suppliers, track expenses, and monitor income. We analyze your transactions to identify where you\u2019re buying from \u2014 then we\u2019ll ask you to confirm. Have your online banking login ready." },
+  { id: "suppliers", icon: "\uD83D\uDE9A", label: "Know your suppliers", desc: "We\u2019ll detect most of your suppliers automatically from your bank transactions. But some might not show up \u2014 like local vendors, farmers markets, or specialty suppliers (e.g. a kombucha supplier). Have a mental list of everywhere you buy ingredients so you can add any we miss." },
 ];
 
 const CHECKLIST_OPTIONAL = [
