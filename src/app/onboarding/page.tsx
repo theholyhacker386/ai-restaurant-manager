@@ -81,22 +81,38 @@ const NON_SUPPLIER_KEYWORDS = [
   "seaworld", "disney", "universal",
 ];
 
-function extractSuppliersFromTransactions(txns: { amount: number; merchant_name?: string; name?: string }[]): string[] {
+interface DetectedMerchants {
+  likelySuppliers: string[];
+  otherCharges: string[];
+}
+
+function extractSuppliersFromTransactions(txns: { amount: number; merchant_name?: string; name?: string }[]): DetectedMerchants {
   const merchantCounts: Record<string, number> = {};
   for (const t of txns) {
     if (t.amount > 0) {
       const name = t.merchant_name || t.name;
       if (!name) continue;
-      const lower = name.toLowerCase();
-      if (!NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw))) {
-        merchantCounts[name] = (merchantCounts[name] || 0) + 1;
-      }
+      merchantCounts[name] = (merchantCounts[name] || 0) + 1;
     }
   }
-  return Object.entries(merchantCounts)
+
+  const sorted = Object.entries(merchantCounts)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 20)
     .map(([name]) => name);
+
+  const likelySuppliers: string[] = [];
+  const otherCharges: string[] = [];
+
+  for (const name of sorted) {
+    const lower = name.toLowerCase();
+    if (NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw))) {
+      otherCharges.push(name);
+    } else {
+      likelySuppliers.push(name);
+    }
+  }
+
+  return { likelySuppliers, otherCharges };
 }
 
 /* ── Data Tag Parsing ──────────────────────────────────── */
@@ -283,6 +299,7 @@ function OnboardingChat() {
   const [bankAccounts, setBankAccounts] = useState<{ account_id: string; name: string; type: string; subtype: string; mask: string; balance: number }[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
   const [detectedSuppliers, setDetectedSuppliers] = useState<string[]>([]);
+  const [otherBankCharges, setOtherBankCharges] = useState<string[]>([]);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -816,9 +833,10 @@ function OnboardingChat() {
               const txns = acctData.transactions || [];
               const detected = extractSuppliersFromTransactions(txns);
 
-              if (detected.length > 0) {
-                setDetectedSuppliers(detected);
-                detectedSuppliersContext = ` We detected these merchants from bank transactions: ${detected.join(", ")}. Tell the user we found these from their bank and show [SHOW_SUPPLIER_PICKER] so they can check which ones are food/ingredient suppliers. Do NOT list them in text — the picker card will show them.`;
+              if (detected.likelySuppliers.length > 0 || detected.otherCharges.length > 0) {
+                setDetectedSuppliers(detected.likelySuppliers);
+                setOtherBankCharges(detected.otherCharges);
+                detectedSuppliersContext = ` We found merchants from bank transactions. Tell the user we found charges from their bank and show [SHOW_SUPPLIER_PICKER] so they can check which ones are food/ingredient suppliers. Do NOT list supplier names in your message text — the picker card will show them.`;
               }
             }
           } catch {
@@ -1283,8 +1301,9 @@ function OnboardingChat() {
         const txns = accountsData.transactions || [];
         const detected = extractSuppliersFromTransactions(txns);
 
-        if (detected.length > 0) {
-          setDetectedSuppliers(detected);
+        if (detected.likelySuppliers.length > 0 || detected.otherCharges.length > 0) {
+          setDetectedSuppliers(detected.likelySuppliers);
+          setOtherBankCharges(detected.otherCharges);
           sendMessage(
             `[SYSTEM: Bank connected successfully! We found merchants from the business account. ` +
             `Tell the user: "Your bank is connected! I found some places you buy from. Check off your food and paper suppliers below, and add any I missed." ` +
@@ -1666,7 +1685,7 @@ function OnboardingChat() {
                   {/* Inline SupplierPicker */}
                   {showSupplierPicker && msg.id === supplierPickerMsgId && (
                     <div className="mt-3">
-                      <SupplierPicker onConfirm={handleSupplierConfirm} detectedSuppliers={detectedSuppliers.length > 0 ? detectedSuppliers : undefined} />
+                      <SupplierPicker onConfirm={handleSupplierConfirm} detectedSuppliers={detectedSuppliers.length > 0 ? detectedSuppliers : undefined} otherCharges={otherBankCharges.length > 0 ? otherBankCharges : undefined} />
                     </div>
                   )}
                   {/* Inline Square Connect */}
