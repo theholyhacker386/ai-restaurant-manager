@@ -158,6 +158,8 @@ export async function PUT(request: Request) {
       pinSet: sessionData?.pinSet || false,
       categories: sessionData?.categories || [],
       businessHours: sessionData?.businessHours || null,
+      squareConnected: sessionData?.squareConnected || false,
+      bankConnected: sessionData?.bankConnected || false,
     };
 
     await sql`

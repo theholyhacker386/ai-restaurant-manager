@@ -719,31 +719,21 @@ function OnboardingChat() {
             const s = loadedSession;
 
             // Restore session data into state
-            if (s.businessInfo) {
-              setSessionData((prev) => ({ ...prev, businessInfo: s.businessInfo }));
-            }
+            // Restore all session data at once to avoid multiple state updates
+            setSessionData((prev) => ({
+              ...prev,
+              ...(s.businessInfo ? { businessInfo: s.businessInfo } : {}),
+              ...(s.menuItems?.length ? { menuItems: s.menuItems } : {}),
+              ...(s.suppliers?.length ? { suppliers: s.suppliers } : {}),
+              ...(s.ingredients?.length ? { ingredients: s.ingredients } : {}),
+              ...(s.categories?.length ? { categories: s.categories } : {}),
+              ...(s.businessHours ? { businessHours: s.businessHours } : {}),
+              ...(s.targets ? { targets: s.targets } : {}),
+              ...(s.progress ? { progress: s.progress } : {}),
+              squareConnected: s.squareConnected || false,
+              bankConnected: s.bankConnected || false,
+            }));
             if (s.userName) setUserName(s.userName);
-            if (s.menuItems?.length) {
-              setSessionData((prev) => ({ ...prev, menuItems: s.menuItems }));
-            }
-            if (s.suppliers?.length) {
-              setSessionData((prev) => ({ ...prev, suppliers: s.suppliers }));
-            }
-            if (s.ingredients?.length) {
-              setSessionData((prev) => ({ ...prev, ingredients: s.ingredients }));
-            }
-            if (s.categories?.length) {
-              setSessionData((prev) => ({ ...prev, categories: s.categories }));
-            }
-            if (s.businessHours) {
-              setSessionData((prev) => ({ ...prev, businessHours: s.businessHours }));
-            }
-            if (s.targets) {
-              setSessionData((prev) => ({ ...prev, targets: s.targets }));
-            }
-            if (s.progress) {
-              setSessionData((prev) => ({ ...prev, progress: s.progress }));
-            }
             if (s.conversationHistory?.length) {
               setConversationHistory(s.conversationHistory);
             }

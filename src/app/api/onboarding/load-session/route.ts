@@ -38,13 +38,22 @@ export async function POST(request: Request) {
     `;
     const user = users[0] || {};
 
-    // Check if Square is connected (from completed_sections or pending tokens)
+    // Check if Square is connected (from completed_sections, linked tokens, or pending tokens)
     const completedSections = s.completed_sections || {};
-    const squareFromSections = completedSections.square === true;
-    const squareTokens = await sql`
-      SELECT id FROM pending_square_tokens LIMIT 1
-    `;
-    const squareConnected = squareFromSections || squareTokens.length > 0;
+    const squareFromSections = completedSections.square === true || completedSections.squareConnected === true;
+    let squareConnected = squareFromSections;
+    if (!squareConnected) {
+      const userRows = await sql`SELECT restaurant_id FROM users WHERE id = ${userId}`;
+      const restId = userRows[0]?.restaurant_id;
+      if (restId) {
+        const linkedTokens = await sql`SELECT id FROM square_tokens WHERE restaurant_id = ${restId} LIMIT 1`;
+        squareConnected = linkedTokens.length > 0;
+      }
+      if (!squareConnected) {
+        const squareTokens = await sql`SELECT id FROM pending_square_tokens LIMIT 1`;
+        squareConnected = squareTokens.length > 0;
+      }
+    }
 
     // Check if bank is connected
     const plaidItems = await sql`
