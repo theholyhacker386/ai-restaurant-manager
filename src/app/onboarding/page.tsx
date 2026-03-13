@@ -767,7 +767,60 @@ function OnboardingChat() {
         // (we can't use sendMessage because React state hasn't updated yet,
         //  so it would send an empty conversation history and the AI would
         //  have no memory of the previous chat)
-        const resumeSystemMsg = `[SYSTEM: This user is returning to continue onboarding. ${resumeContext} Greet them by name, briefly summarize what's done, and continue with the NEXT incomplete step. IMPORTANT: You MUST use the data tags to show interactive elements. If Square isn't connected, include [SHOW_SQUARE_CONNECT] in your response. If bank isn't connected, include [SHOW_BANK_CONNECT]. Always use the tags — the user needs the buttons to connect, they can't do it any other way.]`;
+        // If bank is connected but no suppliers confirmed, detect from transactions
+        let detectedSuppliersContext = "";
+        if (loadedSession?.bankConnected && (!loadedSession?.suppliers || loadedSession.suppliers.length === 0)) {
+          try {
+            // Sync transactions first
+            await fetch("/api/plaid/sync-transactions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ userId: data.userId }),
+            });
+
+            const acctRes = await fetch(`/api/plaid/accounts?userId=${data.userId}`);
+            if (acctRes.ok) {
+              const acctData = await acctRes.json();
+              const txns = acctData.transactions || [];
+
+              const NON_SUPPLIER_KEYWORDS = [
+                "internal revenue", "irs", "dept revenue", "tax", "fpl", "electric", "utilities",
+                "insurance", "progressive", "geico", "allstate", "state farm",
+                "spectrum", "comcast", "att", "t-mobile", "verizon",
+                "mortgage", "rent", "properties", "car payment", "loan",
+                "apple", "google", "facebook", "meta", "adobe", "netflix", "hulu", "spotify",
+                "amazon prime video", "adt", "security", "home shield",
+                "square inc", "stripe", "paypal",
+                "seaworld", "disney", "universal",
+              ];
+
+              const merchantCounts: Record<string, number> = {};
+              for (const t of txns) {
+                if (t.amount > 0) {
+                  const name = t.merchant_name || t.name;
+                  if (!name) continue;
+                  const lower = name.toLowerCase();
+                  if (!NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw))) {
+                    merchantCounts[name] = (merchantCounts[name] || 0) + 1;
+                  }
+                }
+              }
+
+              const detected = Object.entries(merchantCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 20)
+                .map(([name]) => name);
+
+              if (detected.length > 0) {
+                detectedSuppliersContext = ` We detected these merchants from bank transactions: ${detected.join(", ")}. Present ONLY these names and ask which are food/ingredient suppliers. Do NOT show [SHOW_SUPPLIER_PICKER] — do NOT suggest any names not in this list. Use [ADD_SUPPLIERS:[...]] with confirmed list.`;
+              }
+            }
+          } catch {
+            // Non-critical — AI will handle without detected suppliers
+          }
+        }
+
+        const resumeSystemMsg = `[SYSTEM: This user is returning to continue onboarding. ${resumeContext} Greet them by name, briefly summarize what's done, and continue with the NEXT incomplete step.${detectedSuppliersContext} IMPORTANT: You MUST use the data tags to show interactive elements. If Square isn't connected, include [SHOW_SQUARE_CONNECT] in your response. If bank isn't connected, include [SHOW_BANK_CONNECT]. Always use the tags — the user needs the buttons to connect, they can't do it any other way.]`;
 
         // Build the session data we just loaded (can't rely on React state yet)
         const loadedSessionData = {
