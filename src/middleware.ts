@@ -55,6 +55,16 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
+  // Allow Square OAuth routes during onboarding (no login needed — they just redirect to Square)
+  if (!req.auth && pathname.startsWith("/api/square/oauth")) {
+    return NextResponse.next();
+  }
+
+  // Allow Plaid routes during onboarding (user gets signed in when they enter email)
+  if (!req.auth && pathname.startsWith("/api/plaid/")) {
+    return NextResponse.next();
+  }
+
   // If the user is NOT logged in and is NOT on a public page, redirect them
   if (!req.auth && !isPublicPage) {
     // Root path → send to onboarding (frictionless entry point)

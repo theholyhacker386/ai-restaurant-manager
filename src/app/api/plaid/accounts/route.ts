@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTenantDb } from "@/lib/tenant";
+import { getTenantDbWithFallback } from "@/lib/tenant";
 import { ensurePlaidTables } from "@/lib/plaid";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
   try {
-    const { sql, restaurantId } = await getTenantDb();
+    const userId = request.nextUrl.searchParams.get("userId") || undefined;
+    const { sql, restaurantId } = await getTenantDbWithFallback(userId);
 
     // Rate limit: 10 accounts requests per 15 minutes per restaurant
     const { limited } = checkRateLimit(`plaid-accounts-${restaurantId}`, 10, 15 * 60 * 1000);

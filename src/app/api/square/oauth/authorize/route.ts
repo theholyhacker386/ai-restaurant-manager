@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
+import { getSquareCredentials } from "@/lib/square-config";
+import crypto from "crypto";
 
 /**
  * GET /api/square/oauth/authorize
  * Redirects the user to Square's OAuth page to connect their POS.
  */
 export async function GET() {
-  const appId = process.env.SQUARE_APPLICATION_ID;
-  if (!appId) {
+  const creds = await getSquareCredentials();
+
+  if (!creds.applicationId) {
     return NextResponse.json(
-      { error: "Square is not configured" },
+      { error: "Square is not configured. Ask your platform admin to set it up in Settings." },
       { status: 500 }
     );
   }
@@ -24,11 +27,20 @@ export async function GET() {
     "TIMECARDS_READ",
   ].join("+");
 
+  // Use production or sandbox URL based on environment setting
+  const squareBase = creds.environment === "sandbox"
+    ? "https://connect.squareupsandbox.com"
+    : "https://connect.squareup.com";
+
+  // Unique state parameter to prevent Square from caching/skipping the consent screen
+  const state = crypto.randomBytes(16).toString("hex");
+
   const squareUrl =
-    `https://connect.squareup.com/oauth2/authorize` +
-    `?client_id=${appId}` +
+    `${squareBase}/oauth2/authorize` +
+    `?client_id=${creds.applicationId}` +
     `&scope=${scopes}` +
     `&session=false` +
+    `&state=${state}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
   return NextResponse.redirect(squareUrl);

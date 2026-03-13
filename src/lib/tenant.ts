@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { neon } from "@neondatabase/serverless";
 
 /**
  * Get a database connection scoped to the current user's restaurant.
@@ -67,4 +68,31 @@ export async function getRestaurantId(): Promise<string> {
   }
 
   return restaurantId;
+}
+
+/**
+ * Get tenant DB with a fallback userId for onboarding flows.
+ * Tries session first, then looks up restaurantId from the userId directly.
+ */
+export async function getTenantDbWithFallback(userId?: string) {
+  // Try session first
+  try {
+    return await getTenantDb();
+  } catch {
+    // Session didn't work — try userId fallback
+  }
+
+  if (!userId) {
+    throw new Error("Not authenticated and no userId provided");
+  }
+
+  const sql = neon(process.env.NEON_DATABASE_URL!);
+  const rows = await sql`SELECT restaurant_id FROM users WHERE id = ${userId}`;
+  const restaurantId = rows[0]?.restaurant_id;
+
+  if (!restaurantId) {
+    throw new Error("No restaurant found for this user");
+  }
+
+  return { sql: getDb(), restaurantId: restaurantId as string };
 }

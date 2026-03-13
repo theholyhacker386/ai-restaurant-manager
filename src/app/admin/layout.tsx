@@ -19,6 +19,12 @@ export default function AdminLayout({
         </a>
       </header>
 
+      {/* Nav */}
+      <nav className="bg-porch-brown border-t border-white/10 px-4 py-2 flex gap-4">
+        <a href="/admin" className="text-sm text-white/80 hover:text-white transition-colors">Restaurants</a>
+        <a href="/admin/settings" className="text-sm text-white/80 hover:text-white transition-colors">Settings</a>
+      </nav>
+
       {/* Content */}
       <main className="max-w-4xl mx-auto p-4">
         {children}

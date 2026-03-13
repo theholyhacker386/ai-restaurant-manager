@@ -256,11 +256,10 @@ export default function LaunchPadPage() {
             {/* Assign Ingredient Suppliers */}
             <ActionCard
               icon={<span className="text-xl" role="img" aria-label="truck">&#x1F69A;</span>}
-              title="Assign Ingredient Suppliers"
+              title="Review Ingredient Suppliers"
               description={
-                "Once we know all your ingredients from your recipes, we need to know where you buy each one \u2014 " +
-                "like \u2018milk from Costco\u2019 or \u2018coffee beans from a local roaster.\u2019 " +
-                "This lets us track prices and build accurate shopping lists."
+                "We\u2019ll identify your suppliers from your bank transactions and ask you to confirm. " +
+                "Then we\u2019ll search online for prices \u2014 and only ask for receipts when we can\u2019t find them."
               }
               status={
                 readiness.checks.suppliersAssigned.total > 0

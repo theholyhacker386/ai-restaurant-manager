@@ -41,14 +41,35 @@ export async function POST(request: Request) {
     if (existing.length > 0) {
       const user = existing[0];
       if (user.onboarding_completed) {
-        return NextResponse.json({ status: "exists_complete" });
+        // Reset onboarding so they can go through it again
+        await sql`UPDATE users SET onboarding_completed = false WHERE id = ${user.id}`;
+        // Clear old onboarding session
+        await sql`DELETE FROM onboarding_sessions WHERE id = ${user.id}`;
       }
-      // Existing user with incomplete onboarding — let them resume
-      // Migrate anonymous session data if we have a tempSessionId
+      // Generate a fresh auto-login token for the existing user
+      const autoLoginToken = crypto.randomBytes(48).toString("hex");
+      const tokenExpires = new Date(Date.now() + 60 * 60 * 1000);
+      await sql`UPDATE users SET auto_login_token = ${autoLoginToken}, auto_login_token_expires = ${tokenExpires.toISOString()} WHERE id = ${user.id}`;
+
+      // Ensure user has a restaurant — create one if missing
+      const userDetail = await sql`SELECT restaurant_id FROM users WHERE id = ${user.id}`;
+      if (!userDetail[0]?.restaurant_id) {
+        const restRows = await sql`
+          INSERT INTO restaurants (name, type, created_at, updated_at)
+          VALUES (${name || "My Restaurant"}, null, NOW(), NOW())
+          RETURNING id
+        `;
+        const newRestId = restRows[0]?.id;
+        if (newRestId) {
+          await sql`UPDATE users SET restaurant_id = ${newRestId} WHERE id = ${user.id}`;
+        }
+      }
+
+      // Existing user — let them resume or restart onboarding
       if (tempSessionId) {
         await migrateAnonSession(sql, tempSessionId, user.id);
       }
-      return NextResponse.json({ status: "exists_incomplete", userId: user.id });
+      return NextResponse.json({ status: "exists_incomplete", userId: user.id, autoLoginToken });
     }
 
     // Create new user with a random password (they'll log in via auto-login token or PIN)

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { usePlaidLink } from "react-plaid-link";
 import SupplierPicker from "@/components/SupplierPicker";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -26,6 +27,8 @@ interface SessionData {
   progress: number;
   categories: { name: string; items: string[] }[];
   businessHours: Record<string, { open: string; close: string } | null> | null;
+  squareConnected: boolean;
+  bankConnected: boolean;
 }
 
 /* ── Constants ─────────────────────────────────────────── */
@@ -41,6 +44,8 @@ const INITIAL_SESSION: SessionData = {
   progress: 0,
   categories: [],
   businessHours: null,
+  squareConnected: false,
+  bankConnected: false,
 };
 
 function generateId() {
@@ -52,12 +57,11 @@ function generateId() {
 const CHECKLIST_REQUIRED = [
   { id: "menu", icon: "\uD83C\uDF7D\uFE0F", label: "Menu with prices", desc: "A printed menu, PDF, or photo. Or be ready to list your items and prices." },
   { id: "recipes", icon: "\uD83D\uDCCB", label: "Recipes for every menu item", desc: "We need to know what goes into each item you sell. For example: a Latte = 9oz milk + 20g coffee beans + 0.75oz vanilla syrup. Even coffee drinks, sauces, and blends need recipes so we can calculate your true cost per item." },
-  { id: "suppliers", icon: "\uD83D\uDED2", label: "Know your suppliers & what you buy from each", desc: "Which stores or distributors do you buy from, and what do you get from each one? For example: milk and cheese from Costco, meat from Sysco, dry goods from Restaurant Depot. We'll automatically search the web for pricing!" },
-  { id: "receipts", icon: "\uD83E\uDDFE", label: "Receipts for select suppliers", desc: "We'll automatically pull prices from suppliers that post them online (Walmart, Costco, etc.). For suppliers that don't, we'll let you know which ones need receipts or invoices." },
+  { id: "bank", icon: "\uD83C\uDFE6", label: "Bank login info", desc: "We\u2019ll connect your bank account to automatically find your suppliers, track expenses, and monitor income. We analyze your transactions to identify where you\u2019re buying from \u2014 then we\u2019ll ask you to confirm. Have your online banking login ready." },
 ];
 
 const CHECKLIST_OPTIONAL = [
-  { id: "bank", icon: "\uD83C\uDFE6", label: "Bank login info", desc: "We'll connect your bank account to automatically track your expenses and income. Have your online banking login ready." },
+  { id: "receipts", icon: "\uD83E\uDDFE", label: "Receipts or invoices from suppliers", desc: "We\u2019ll search online for prices first (Walmart, Costco, etc.). For suppliers where we can\u2019t find prices online, we\u2019ll let you know which ones need a receipt or invoice." },
   { id: "spreadsheet", icon: "\uD83D\uDCCA", label: "Cost spreadsheet or P&L", desc: "If you track costs in a spreadsheet, have it ready to upload. CSV, Excel, or PDF." },
   { id: "inventory", icon: "\uD83D\uDCE6", label: "Current inventory counts", desc: "A rough count of what you have on hand right now (cases of chicken, gallons of milk, etc.). This helps us build accurate shopping lists from day one." },
   { id: "tax", icon: "\uD83D\uDCB0", label: "Your state & sales tax rate", desc: "Know what state you're in and your sales tax percentage. This lets us track how much tax you're collecting and when it's due." },
@@ -185,6 +189,7 @@ function parseDataTags(text: string, session: SessionData): { cleanText: string;
     .replace(/\[ADD_SUPPLIERS:\[.*?\]]/g, "")
     .replace(/\[SHOW_SUPPLIER_PICKER\]/g, "")
     .replace(/\[SHOW_SQUARE_CONNECT\]/g, "")
+    .replace(/\[SHOW_BANK_CONNECT\]/g, "")
     .replace(/\[ADD_MENU_ITEMS:\[[\s\S]*?\]]/g, "")
     .replace(/\[ADD_INGREDIENTS:\[[\s\S]*?\]]/g, "")
     .replace(/\[SET_CATEGORIES:\[[\s\S]*?\]]/g, "")
@@ -227,12 +232,20 @@ function OnboardingChat() {
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [showResumeLogin, setShowResumeLogin] = useState(false);
+  const [resumeEmail, setResumeEmail] = useState("");
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [resumeError, setResumeError] = useState("");
 
-  // Inline component state (supplier picker, square connect)
+  // Inline component state (supplier picker, square connect, bank connect)
   const [showSupplierPicker, setShowSupplierPicker] = useState(false);
   const [showSquareConnect, setShowSquareConnect] = useState(false);
+  const [showBankConnect, setShowBankConnect] = useState(false);
   const [supplierPickerMsgId, setSupplierPickerMsgId] = useState("");
   const [squareConnectMsgId, setSquareConnectMsgId] = useState("");
+  const [bankConnectMsgId, setBankConnectMsgId] = useState("");
+  const [plaidLinkToken, setPlaidLinkToken] = useState<string | null>(null);
+  const [bankConnecting, setBankConnecting] = useState(false);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -387,12 +400,14 @@ function OnboardingChat() {
   /* ── Send Message ────────────────────────────────────── */
 
   const sendMessage = useCallback(async (text?: string, fileResults?: any) => {
-    if (thinking || uploading) return;
+    // Allow file results to come through even when thinking (background uploads)
+    if ((thinking || uploading) && !fileResults) return;
     const userText = text || input.trim();
     if (!userText && !fileResults) return;
 
-    // Add user message to chat
-    if (userText && !fileResults) {
+    // Add user message to chat (hide [SYSTEM: ...] messages from the user)
+    const isSystemInstruction = userText?.startsWith("[SYSTEM");
+    if (userText && !fileResults && !isSystemInstruction) {
       const userMsg: Message = {
         id: generateId(),
         role: "user",
@@ -448,6 +463,10 @@ function OnboardingChat() {
         if (data.reply.includes("[SHOW_SQUARE_CONNECT]")) {
           setShowSquareConnect(true);
           setSquareConnectMsgId(aiMsg.id);
+        }
+        if (data.reply.includes("[SHOW_BANK_CONNECT]")) {
+          setShowBankConnect(true);
+          setBankConnectMsgId(aiMsg.id);
         }
 
         // Save session to database
@@ -507,12 +526,11 @@ function OnboardingChat() {
   async function handleFileUpload(files: FileList | null) {
     if (!files || files.length === 0) return;
     setShowUploadMenu(false);
-    setUploading(true);
 
     const file = files[0];
     const uploadType = uploadTypeRef.current;
 
-    // Show upload message in chat
+    // Show upload message in chat immediately
     const uploadMsg: Message = {
       id: generateId(),
       role: "user",
@@ -522,61 +540,50 @@ function OnboardingChat() {
     };
     setMessages((prev) => [...prev, uploadMsg]);
 
-    // Show processing message
-    const processingMsg: Message = {
-      id: generateId(),
-      role: "system",
-      content: `Reading your ${uploadType}... this may take a moment.`,
-      timestamp: Date.now(),
-    };
-    setMessages((prev) => [...prev, processingMsg]);
+    // Tell the AI right away so it can keep the conversation moving
+    sendMessage(`I just uploaded a ${uploadType}: ${file.name}. It's being processed now — keep going with the next questions while it loads.`);
 
-    try {
-      const formData = new FormData();
-      let endpoint = "";
-      let resultType = uploadType;
+    // Process the file in the background (don't block the chat)
+    const formData = new FormData();
+    let endpoint = "";
+    let resultType = uploadType;
 
-      if (uploadType === "menu") {
-        formData.append("files", file);
-        endpoint = "/api/onboarding/parse-menu";
-      } else if (uploadType === "receipt") {
-        formData.append("image", file);
-        endpoint = "/api/receipts/scan";
-      } else {
-        formData.append("files", file);
-        endpoint = "/api/onboarding/parse-spreadsheet";
-      }
-
-      const res = await fetch(endpoint, { method: "POST", body: formData });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Failed to read file");
-      }
-
-      const parsed = await res.json();
-
-      // Remove processing message
-      setMessages((prev) => prev.filter((m) => m.id !== processingMsg.id));
-
-      // Send results to chat AI
-      setUploading(false);
-      await sendMessage(`I uploaded a ${uploadType}: ${file.name}`, {
-        type: resultType,
-        data: parsed,
-      });
-    } catch (err) {
-      // Remove processing message
-      setMessages((prev) => prev.filter((m) => m.id !== processingMsg.id));
-
-      const errMsg: Message = {
-        id: generateId(),
-        role: "assistant",
-        content: `I had trouble reading that file. ${err instanceof Error ? err.message : ""}. Could you try uploading it again, or just tell me the info manually?`,
-        timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, errMsg]);
-      setUploading(false);
+    if (uploadType === "menu") {
+      formData.append("files", file);
+      endpoint = "/api/onboarding/parse-menu";
+    } else if (uploadType === "receipt") {
+      formData.append("image", file);
+      endpoint = "/api/receipts/scan";
+    } else {
+      formData.append("files", file);
+      endpoint = "/api/onboarding/parse-spreadsheet";
     }
+
+    // Fire off the upload in the background
+    fetch(endpoint, { method: "POST", body: formData })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Failed to read file");
+        }
+        return res.json();
+      })
+      .then((parsed) => {
+        // File is done processing — send results to the AI
+        sendMessage(`[SYSTEM] The ${uploadType} file "${file.name}" has been processed. Here are the results:`, {
+          type: resultType,
+          data: parsed,
+        });
+      })
+      .catch((err) => {
+        const errMsg: Message = {
+          id: generateId(),
+          role: "assistant",
+          content: `I had trouble reading that file. ${err instanceof Error ? err.message : ""}. Could you try uploading it again, or just tell me the info manually?`,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, errMsg]);
+      });
   }
 
   function triggerUpload(type: "menu" | "receipt" | "spreadsheet") {
@@ -630,32 +637,222 @@ function OnboardingChat() {
 
       const data = await res.json();
 
-      if (data.status === "created") {
-        setUserId(data.userId);
-        setAutoLoginToken(data.autoLoginToken);
-        setIsAnonymous(false);
-        // Clean up localStorage temp session — we have a real account now
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("onboarding_temp_session");
-        }
-      } else if (data.status === "exists_incomplete") {
+      if (data.status === "created" || data.status === "exists_incomplete") {
         setUserId(data.userId);
         setIsAnonymous(false);
         if (typeof window !== "undefined") {
           localStorage.removeItem("onboarding_temp_session");
         }
-      } else if (data.status === "exists_complete") {
-        // User already exists and finished onboarding — show login message
-        const loginMsg: Message = {
-          id: generateId(),
-          role: "assistant",
-          content: "Looks like you already have an account with that email! Head over to the login page to sign in and access your dashboard.",
-          timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, loginMsg]);
+
+        // Sign in immediately so Plaid and other authenticated routes work during onboarding
+        if (data.autoLoginToken) {
+          setAutoLoginToken(data.autoLoginToken);
+          try {
+            await signIn("onboarding-token", {
+              token: data.autoLoginToken,
+              redirect: false,
+            });
+          } catch {
+            // Sign-in may fail silently — onboarding can still continue with userId
+            console.log("Auto sign-in deferred");
+          }
+        }
       }
     } catch (err) {
       console.error("Silent account creation failed:", err);
+    }
+  }
+
+  async function handleResumeLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setResumeLoading(true);
+    setResumeError("");
+
+    try {
+      // Use the same create-account endpoint — it handles existing users
+      const res = await fetch("/api/onboarding/create-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resumeEmail.trim().toLowerCase() }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        setResumeError(data.error || "Could not find that account. Try starting fresh below!");
+        return;
+      }
+
+      if (data.userId && data.autoLoginToken) {
+        setUserId(data.userId);
+        setIsAnonymous(false);
+        setAutoLoginToken(data.autoLoginToken);
+
+        // Sign in
+        try {
+          await signIn("onboarding-token", {
+            token: data.autoLoginToken,
+            redirect: false,
+          });
+        } catch {
+          console.log("Sign-in deferred during resume");
+        }
+
+        // Load saved session data
+        let resumeContext = "";
+        let loadedSession: any = null;
+        try {
+          const sessionRes = await fetch("/api/onboarding/load-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: data.userId }),
+          });
+          const sessionResult = await sessionRes.json();
+          loadedSession = sessionResult.session;
+
+          if (loadedSession) {
+            const s = loadedSession;
+
+            // Restore session data into state
+            if (s.businessInfo) {
+              setSessionData((prev) => ({ ...prev, businessInfo: s.businessInfo }));
+            }
+            if (s.userName) setUserName(s.userName);
+            if (s.menuItems?.length) {
+              setSessionData((prev) => ({ ...prev, menuItems: s.menuItems }));
+            }
+            if (s.suppliers?.length) {
+              setSessionData((prev) => ({ ...prev, suppliers: s.suppliers }));
+            }
+            if (s.ingredients?.length) {
+              setSessionData((prev) => ({ ...prev, ingredients: s.ingredients }));
+            }
+            if (s.categories?.length) {
+              setSessionData((prev) => ({ ...prev, categories: s.categories }));
+            }
+            if (s.businessHours) {
+              setSessionData((prev) => ({ ...prev, businessHours: s.businessHours }));
+            }
+            if (s.targets) {
+              setSessionData((prev) => ({ ...prev, targets: s.targets }));
+            }
+            if (s.progress) {
+              setSessionData((prev) => ({ ...prev, progress: s.progress }));
+            }
+            if (s.conversationHistory?.length) {
+              setConversationHistory(s.conversationHistory);
+            }
+
+            // Build context summary for the AI
+            const parts: string[] = [];
+            if (s.businessInfo?.name) parts.push(`Restaurant: ${s.businessInfo.name} (${s.businessInfo.type || "unknown type"})`);
+            if (s.squareConnected) parts.push("Square POS: Connected");
+            if (s.menuItems?.length) parts.push(`Menu items: ${s.menuItems.length} collected`);
+            if (s.categories?.length) parts.push(`Categories: ${s.categories.length} set`);
+            if (s.bankConnected) parts.push("Bank: Connected via Plaid");
+            if (s.suppliers?.length) parts.push(`Suppliers: ${s.suppliers.join(", ")}`);
+            if (s.ingredients?.length) parts.push(`Ingredients: ${s.ingredients.length} collected`);
+            if (s.businessHours) parts.push("Business hours: Set");
+            if (s.targets) parts.push(`Targets: Food ${s.targets.food_cost}%, Labor ${s.targets.labor_cost}%`);
+            if (s.progress) parts.push(`Progress: ${s.progress}%`);
+
+            resumeContext = parts.length > 0
+              ? `Here's what's already done:\n${parts.join("\n")}\n\nPick up from the NEXT step that hasn't been completed yet.`
+              : "This user started but hasn't completed much yet. Start from the beginning.";
+          }
+        } catch {
+          resumeContext = "Could not load previous progress. Ask the user where they'd like to pick up.";
+        }
+
+        // Go straight to chat phase
+        setPhase("chat");
+        setShowResumeLogin(false);
+
+        // Directly call the chat API with the LOADED conversation history
+        // (we can't use sendMessage because React state hasn't updated yet,
+        //  so it would send an empty conversation history and the AI would
+        //  have no memory of the previous chat)
+        const resumeSystemMsg = `[SYSTEM: This user is returning to continue onboarding. ${resumeContext} Greet them by name, briefly summarize what's done, and continue with the NEXT incomplete step. IMPORTANT: You MUST use the data tags to show interactive elements. If Square isn't connected, include [SHOW_SQUARE_CONNECT] in your response. If bank isn't connected, include [SHOW_BANK_CONNECT]. Always use the tags — the user needs the buttons to connect, they can't do it any other way.]`;
+
+        // Build the session data we just loaded (can't rely on React state yet)
+        const loadedSessionData = {
+          businessInfo: loadedSession?.businessInfo || null,
+          suppliers: loadedSession?.suppliers || [],
+          menuItems: loadedSession?.menuItems || [],
+          ingredients: loadedSession?.ingredients || [],
+          targets: loadedSession?.targets || null,
+          pinSet: false,
+          pinValue: "",
+          progress: loadedSession?.progress || 0,
+          categories: loadedSession?.categories || [],
+          businessHours: loadedSession?.businessHours || null,
+          squareConnected: loadedSession?.squareConnected || false,
+          bankConnected: loadedSession?.bankConnected || false,
+        };
+
+        // Use the loaded conversation history directly (not the empty state)
+        const loadedHistory = loadedSession?.conversationHistory || [];
+
+        try {
+          setThinking(true);
+          const chatRes = await fetch("/api/onboarding/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: resumeSystemMsg,
+              conversationHistory: loadedHistory,
+              sessionData: loadedSessionData,
+              userName: loadedSession?.userName || data.userName || "",
+            }),
+          });
+          const chatData = await chatRes.json();
+          if (chatData.reply) {
+            const { cleanText, updatedSession } = parseDataTags(chatData.reply, loadedSessionData);
+            const aiMsg: Message = {
+              id: generateId(),
+              role: "assistant",
+              content: cleanText,
+              timestamp: Date.now(),
+            };
+            setMessages((prev) => [...prev, aiMsg]);
+
+            const updatedHistory = [...loadedHistory, { role: "user", content: resumeSystemMsg }, { role: "assistant", content: chatData.reply }];
+            setConversationHistory(updatedHistory);
+            setSessionData(updatedSession);
+
+            // Trigger inline components if the AI included them
+            if (chatData.reply.includes("[SHOW_SQUARE_CONNECT]")) {
+              setShowSquareConnect(true);
+              setSquareConnectMsgId(aiMsg.id);
+            }
+            if (chatData.reply.includes("[SHOW_BANK_CONNECT]")) {
+              setShowBankConnect(true);
+              setBankConnectMsgId(aiMsg.id);
+            }
+            if (chatData.reply.includes("[SHOW_SUPPLIER_PICKER]")) {
+              setShowSupplierPicker(true);
+              setSupplierPickerMsgId(aiMsg.id);
+            }
+          }
+          setThinking(false);
+        } catch {
+          setThinking(false);
+          const fallbackMsg: Message = {
+            id: generateId(),
+            role: "assistant",
+            content: `Welcome back! Let's pick up where we left off. What would you like to work on next?`,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, fallbackMsg]);
+        }
+      } else {
+        setResumeError("We couldn't find an account with that email. Try starting fresh below!");
+      }
+    } catch (err) {
+      console.error("Resume login error:", err);
+      setResumeError("Something went wrong. Please try again.");
+    } finally {
+      setResumeLoading(false);
     }
   }
 
@@ -769,6 +966,17 @@ function OnboardingChat() {
         });
       }
 
+      // Link Square token to this restaurant (if they connected Square during onboarding)
+      try {
+        await fetch("/api/square/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ days: 30 }),
+        });
+      } catch {
+        // Square sync is optional — don't block completion
+      }
+
       // Mark onboarding complete
       await fetch("/api/onboarding/complete", {
         method: "POST",
@@ -830,9 +1038,8 @@ function OnboardingChat() {
 
   function handleSquareConnect() {
     setShowSquareConnect(false);
-    // Open Square OAuth in a popup/new tab
+    // Open Square OAuth in a popup — the postMessage listener handles the rest
     window.open("/api/square/oauth/authorize", "_blank", "width=600,height=700");
-    sendMessage("I'm connecting my Square POS now.");
   }
 
   function handleSquareSkip() {
@@ -840,16 +1047,144 @@ function OnboardingChat() {
     sendMessage("I'll skip Square for now.");
   }
 
-  // Handle Square OAuth callback (check URL params on mount)
+  // Listen for Square OAuth popup to send back a success/error message
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const squareStatus = url.searchParams.get("square");
-    if (squareStatus === "success") {
-      // Remove the query param
-      url.searchParams.delete("square");
-      window.history.replaceState({}, "", url.pathname + url.search);
+    function handleSquareMessage(event: MessageEvent) {
+      if (event.data?.type === "square-oauth") {
+        if (event.data.status === "success") {
+          // Mark Square as connected in session data so the AI knows
+          setSessionData((prev) => ({ ...prev, squareConnected: true }));
+
+          // After Square connects, try to sync data (business hours, location, sales)
+          // This makes the AI smarter — it won't need to ask for info Square already has
+          (async () => {
+            let squareContext = "The user just connected their Square POS successfully.";
+            try {
+              const syncRes = await fetch("/api/square/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ days: 30 }),
+              });
+              if (syncRes.ok) {
+                const syncData = await syncRes.json();
+                if (syncData.synced) {
+                  const parts = [];
+                  if (syncData.synced.orders > 0) parts.push(`${syncData.synced.orders} orders synced from Square`);
+                  if (syncData.synced.labor > 0) parts.push(`${syncData.synced.labor} timecards synced`);
+                  if (syncData.synced.location === "synced") parts.push("Business hours and location info pulled from Square automatically");
+                  if (parts.length > 0) squareContext += ` We also pulled data from their Square account: ${parts.join(", ")}.`;
+                  if (syncData.synced.location === "synced") {
+                    squareContext += " IMPORTANT: Business hours have been auto-filled from Square — do NOT ask for business hours again, just confirm them or skip that step.";
+                  }
+                }
+              }
+            } catch {
+              // Sync failed — that's OK, we'll still acknowledge the connection
+            }
+            sendMessage(`[SYSTEM] ${squareContext} Acknowledge the connection and move on to the next step.`);
+          })();
+        }
+      }
     }
+    window.addEventListener("message", handleSquareMessage);
+    return () => window.removeEventListener("message", handleSquareMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ── Bank Connect Handlers ──────────────────────────── */
+
+  const [bankConnectError, setBankConnectError] = useState("");
+
+  async function handleBankConnect() {
+    setBankConnecting(true);
+    setBankConnectError("");
+    try {
+      const res = await fetch("/api/plaid/create-link-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      if (!res.ok) throw new Error("Failed to create link token");
+      const data = await res.json();
+      setPlaidLinkToken(data.link_token);
+    } catch {
+      // Don't hide the card — show the error ON the card so the user can retry
+      setBankConnecting(false);
+      setBankConnectError("Having trouble connecting. Try again, or skip and connect later from your Launch Pad.");
+    }
+  }
+
+  async function handleBankConnectSuccess(publicToken: string, metadata: { institution?: { name?: string; institution_id?: string } }) {
+    // Mark bank as connected in session data so the AI knows
+    setSessionData((prev) => ({ ...prev, bankConnected: true }));
+
+    try {
+      // Exchange public token for access token
+      const res = await fetch("/api/plaid/exchange-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          public_token: publicToken,
+          institution: metadata.institution,
+          userId,
+        }),
+      });
+      if (!res.ok) throw new Error("Exchange failed");
+
+      // Sync transactions
+      await fetch("/api/plaid/sync-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+
+      // Fetch transactions and extract unique merchant/supplier names
+      const accountsRes = await fetch(`/api/plaid/accounts${userId ? `?userId=${userId}` : ""}`);
+      if (accountsRes.ok) {
+        const accountsData = await accountsRes.json();
+        const txns = accountsData.transactions || [];
+        // Extract unique merchant names from transactions (expenses only = positive amounts)
+        const merchantSet = new Set<string>();
+        for (const t of txns) {
+          if (t.amount > 0 && t.merchant_name) {
+            merchantSet.add(t.merchant_name);
+          } else if (t.amount > 0 && t.name) {
+            merchantSet.add(t.name);
+          }
+        }
+        const detectedSuppliers = Array.from(merchantSet).slice(0, 30);
+
+        if (detectedSuppliers.length > 0) {
+          sendMessage(
+            `[SYSTEM: Bank connected successfully! We analyzed the transactions and found these potential suppliers: ${detectedSuppliers.join(", ")}. ` +
+            `Present this list to the user and ask: "Looking at your recent transactions, it looks like you buy from these places: [list them nicely]. ` +
+            `Does that look right? Are there any suppliers I'm missing?" Let them confirm and add any missing ones. ` +
+            `Use [ADD_SUPPLIERS:[...]] with their confirmed list. Then use [SHOW_SUPPLIER_PICKER] ONLY if they want to add more suppliers not in the list.]`
+          );
+        } else {
+          sendMessage(
+            `[SYSTEM: Bank connected successfully! However, transaction data is still loading — this is normal and can take a few minutes. ` +
+            `Tell the user: "Your bank is connected! It takes a little while for your transaction history to load — ` +
+            `we'll automatically detect your suppliers from your spending once it's ready. For now, let's keep moving!" ` +
+            `Do NOT suggest any supplier names — you don't have transaction data yet. Do NOT mention Walmart, Sysco, US Foods, or any specific companies. ` +
+            `Just move on to the next onboarding step. We'll come back to suppliers later when the transaction data is available.]`
+          );
+        }
+      }
+    } catch {
+      sendMessage("[SYSTEM: Bank connection was completed but we had trouble syncing transactions. Tell the user the bank is connected and they can sync transactions later from the Launch Pad.]");
+    } finally {
+      setBankConnecting(false);
+      setShowBankConnect(false);
+      setPlaidLinkToken(null);
+    }
+  }
+
+  function handleBankSkip() {
+    setShowBankConnect(false);
+    setBankConnecting(false);
+    sendMessage("I'll skip connecting my bank for now.");
+  }
 
   /* ── Keyboard Handler ────────────────────────────────── */
 
@@ -928,6 +1263,44 @@ function OnboardingChat() {
               Your Personal Onboarding Manager will walk you through setting up your restaurant. Gather what you can from this checklist first &mdash; the more you have ready, the smoother it&apos;ll go.
             </p>
           </div>
+
+          {/* Already started? */}
+          {!showResumeLogin ? (
+            <button
+              onClick={() => setShowResumeLogin(true)}
+              className="w-full text-center text-sm text-porch-teal font-medium mb-4 hover:underline"
+            >
+              Already started? Log in to pick up where you left off
+            </button>
+          ) : (
+            <div className="bg-white rounded-xl shadow p-4 mb-4">
+              <p className="text-sm font-medium text-porch-brown mb-3">Enter the email you used before:</p>
+              <form onSubmit={handleResumeLogin} className="flex gap-2">
+                <input
+                  type="email"
+                  required
+                  value={resumeEmail}
+                  onChange={(e) => setResumeEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-porch-teal focus:border-transparent"
+                />
+                <button
+                  type="submit"
+                  disabled={resumeLoading}
+                  className="bg-porch-teal text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-porch-teal-light transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  {resumeLoading ? "..." : "Continue"}
+                </button>
+              </form>
+              {resumeError && <p className="text-xs text-red-500 mt-2">{resumeError}</p>}
+              <button
+                onClick={() => { setShowResumeLogin(false); setResumeError(""); }}
+                className="text-xs text-gray-400 mt-2 hover:text-gray-600"
+              >
+                Never mind, start fresh
+              </button>
+            </div>
+          )}
 
           {/* Time estimate */}
           <div className="bg-porch-teal/10 rounded-xl p-4 mb-6 flex items-center gap-3">
@@ -1200,6 +1573,46 @@ function OnboardingChat() {
                       </div>
                     </div>
                   )}
+                  {/* Inline Bank Connect */}
+                  {showBankConnect && msg.id === bankConnectMsgId && (
+                    <div className="mt-3 bg-porch-cream rounded-xl p-4 border border-porch-cream-dark">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 bg-porch-teal rounded-lg flex items-center justify-center">
+                          <span className="text-white text-xl" role="img" aria-label="bank">&#x1F3E6;</span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-porch-brown">Connect Your Bank</p>
+                          <p className="text-xs text-porch-brown-light">We&apos;ll find your suppliers automatically</p>
+                        </div>
+                      </div>
+                      {bankConnecting ? (
+                        <div className="flex items-center justify-center py-3">
+                          <div className="w-5 h-5 border-2 border-porch-teal border-t-transparent rounded-full animate-spin mr-2" />
+                          <span className="text-sm text-porch-brown-light">Connecting...</span>
+                        </div>
+                      ) : (
+                        <div>
+                          {bankConnectError && (
+                            <p className="text-sm text-red-600 mb-2">{bankConnectError}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleBankConnect}
+                              className="flex-1 bg-porch-teal text-white py-2 rounded-lg text-sm font-medium hover:bg-porch-teal-light transition-colors"
+                            >
+                              {bankConnectError ? "Try Again" : "Connect Bank"}
+                            </button>
+                            <button
+                              onClick={handleBankSkip}
+                              className="px-4 py-2 text-sm text-porch-brown-light hover:text-porch-brown transition-colors"
+                            >
+                              Skip for now
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1221,6 +1634,18 @@ function OnboardingChat() {
           <div ref={messagesEndRef} />
         </div>
       </div>
+
+      {/* Plaid Link auto-opener */}
+      {plaidLinkToken && (
+        <PlaidLinkOpener
+          linkToken={plaidLinkToken}
+          onSuccess={handleBankConnectSuccess}
+          onExit={() => {
+            setPlaidLinkToken(null);
+            setBankConnecting(false);
+          }}
+        />
+      )}
 
       {/* Input area */}
       <div className="border-t border-porch-cream-dark bg-white px-4 py-3">
@@ -1328,6 +1753,37 @@ function ChecklistCard({ item, checked, onToggle }: {
       )}
     </div>
   );
+}
+
+/* ── Plaid Link Opener ─────────────────────────────────── */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function PlaidLinkOpener({
+  linkToken,
+  onSuccess,
+  onExit,
+}: {
+  linkToken: string;
+  onSuccess: (publicToken: string, metadata: any) => void;
+  onExit: () => void;
+}) {
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess: (public_token: string, metadata: any) => {
+      onSuccess(public_token, metadata);
+    },
+    onExit: () => {
+      onExit();
+    },
+  });
+
+  useEffect(() => {
+    if (ready) {
+      open();
+    }
+  }, [ready, open]);
+
+  return null;
 }
 
 /* ── Page Export ────────────────────────────────────────── */

@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { getPlaidClient, ensurePlaidTables } from "@/lib/plaid";
-import { getTenantDb } from "@/lib/tenant";
+import { getTenantDbWithFallback } from "@/lib/tenant";
 import { decrypt } from "@/lib/encryption";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { v4 as uuid } from "uuid";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const client = getPlaidClient();
-    const { sql, restaurantId } = await getTenantDb();
+    let userId: string | undefined;
+    try { const body = await request.json(); userId = body.userId; } catch { /* no body is fine */ }
+    const { sql, restaurantId } = await getTenantDbWithFallback(userId);
 
     // Rate limit: 10 sync requests per 15 minutes per restaurant
     const { limited } = checkRateLimit(`plaid-sync-${restaurantId}`, 10, 15 * 60 * 1000);
