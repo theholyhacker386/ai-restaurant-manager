@@ -17,11 +17,10 @@ export async function POST(request: Request) {
 
     const sql = neon(process.env.NEON_DATABASE_URL!);
 
-    // Get session data
+    // Get session data (categories, business_hours, targets, suppliers are stored inside completed_sections JSON)
     const sessions = await sql`
       SELECT business_name, business_type, customer_name, menu_items, ingredients,
-             completed_sections, conversation_history, progress, categories,
-             business_hours, targets, suppliers
+             completed_sections, conversation_history, progress
       FROM onboarding_sessions
       WHERE id = ${userId}
     `;
@@ -31,6 +30,8 @@ export async function POST(request: Request) {
     }
 
     const s = sessions[0];
+    // Extract fields stored inside completed_sections JSON
+    const meta = s.completed_sections || {};
 
     // Get user info
     const users = await sql`
@@ -68,15 +69,17 @@ export async function POST(request: Request) {
         businessInfo: s.business_name ? {
           name: s.business_name,
           type: s.business_type,
+          tenure: meta.tenure || null,
         } : null,
         userName: s.customer_name || user.name || null,
         menuItems: s.menu_items || [],
         ingredients: s.ingredients || [],
-        suppliers: s.suppliers || [],
-        categories: s.categories || [],
-        businessHours: s.business_hours || null,
-        targets: s.targets || null,
-        completedSections: s.completed_sections || {},
+        suppliers: meta.suppliers || [],
+        categories: meta.categories || [],
+        businessHours: meta.businessHours || null,
+        targets: meta.targets || null,
+        pinSet: meta.pinSet || false,
+        completedSections: meta,
         conversationHistory: s.conversation_history || [],
         progress: s.progress || 0,
         squareConnected,
