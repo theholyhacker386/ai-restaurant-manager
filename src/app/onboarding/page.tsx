@@ -1097,6 +1097,18 @@ function OnboardingChat() {
 
   async function handleSupplierConfirm(suppliers: string[]) {
     setShowSupplierPicker(false);
+
+    // Save suppliers to the database
+    try {
+      await fetch("/api/onboarding/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suppliers }),
+      });
+    } catch {
+      // Non-critical — continue with chat
+    }
+
     // Send supplier names back to the AI as a user message
     sendMessage(`I selected these suppliers: ${suppliers.join(", ")}`);
 
