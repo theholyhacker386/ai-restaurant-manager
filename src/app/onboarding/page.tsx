@@ -500,6 +500,9 @@ function OnboardingChat() {
       if (data.reply) {
         const { cleanText, updatedSession, email } = parseDataTags(data.reply, sessionData);
 
+        // Save any new data to the real database tables immediately
+        saveProgressively(sessionData, updatedSession);
+
         const aiMsg: Message = {
           id: generateId(),
           role: "assistant",
@@ -968,6 +971,107 @@ function OnboardingChat() {
       });
     } catch (err) {
       console.error("Failed to save PIN:", err);
+    }
+  }
+
+  /**
+   * Save data to the real database tables as soon as the AI provides it.
+   * Compares old vs new session to only save what's new.
+   */
+  async function saveProgressively(oldSession: SessionData, newSession: SessionData) {
+    try {
+      // New suppliers
+      const oldSupplierSet = new Set(oldSession.suppliers.map(s => s.toLowerCase()));
+      const newSuppliers = newSession.suppliers.filter(s => !oldSupplierSet.has(s.toLowerCase()));
+      if (newSuppliers.length > 0) {
+        fetch("/api/onboarding/suppliers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ suppliers: newSuppliers }),
+        }).catch(() => {});
+      }
+
+      // New menu items
+      const oldMenuSet = new Set(oldSession.menuItems.map(m => m.name.toLowerCase()));
+      const newMenuItems = newSession.menuItems.filter(m => !oldMenuSet.has(m.name.toLowerCase()));
+      for (const item of newMenuItems) {
+        fetch("/api/menu-items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: item.name, selling_price: item.selling_price }),
+        }).catch(() => {});
+      }
+
+      // New ingredients
+      const oldIngSet = new Set(oldSession.ingredients.map(i => i.name.toLowerCase()));
+      const newIngredients = newSession.ingredients.filter(i => !oldIngSet.has(i.name.toLowerCase()));
+      for (const ing of newIngredients) {
+        if (ing.name?.trim()) {
+          fetch("/api/ingredients", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: ing.name,
+              unit: ing.package_unit || "each",
+              package_size: ing.package_size || null,
+              package_unit: ing.package_unit || null,
+              package_price: ing.package_price || null,
+              supplier: ing.supplier || "Other",
+            }),
+          }).catch(() => {});
+        }
+      }
+
+      // Targets (save whenever changed)
+      if (newSession.targets && JSON.stringify(newSession.targets) !== JSON.stringify(oldSession.targets)) {
+        fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            food_cost_target: newSession.targets.food_cost,
+            food_cost_warning: newSession.targets.food_cost + 5,
+            labor_cost_target: newSession.targets.labor_cost,
+          }),
+        }).catch(() => {});
+      }
+
+      // Business hours (save whenever changed)
+      if (newSession.businessHours && JSON.stringify(newSession.businessHours) !== JSON.stringify(oldSession.businessHours)) {
+        fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ business_hours: newSession.businessHours }),
+        }).catch(() => {});
+      }
+
+      // Categories (save whenever changed)
+      if (newSession.categories.length > 0 && JSON.stringify(newSession.categories) !== JSON.stringify(oldSession.categories)) {
+        for (let i = 0; i < newSession.categories.length; i++) {
+          const cat = newSession.categories[i];
+          try {
+            const catRes = await fetch("/api/menu-categories", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: cat.name, sort_order: i + 1 }),
+            });
+            if (catRes.ok && cat.items) {
+              const catData = await catRes.json();
+              const categoryId = catData.id || catData.category?.id;
+              if (categoryId) {
+                for (const itemName of cat.items) {
+                  fetch("/api/menu-items/assign-category", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ itemName, categoryId }),
+                  }).catch(() => {});
+                }
+              }
+            }
+          } catch { /* non-critical */ }
+        }
+      }
+    } catch {
+      // Progressive save is non-critical — don't break the chat flow
     }
   }
 
