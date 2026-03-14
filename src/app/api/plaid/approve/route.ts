@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTenantDb } from "@/lib/tenant";
+import { getTenantDbWithFallback } from "@/lib/tenant";
 import { ensurePlaidTables } from "@/lib/plaid";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -165,7 +165,8 @@ async function autoApproveMatchingMerchants(
 // Single approve
 export async function POST(request: NextRequest) {
   try {
-    const { sql, restaurantId } = await getTenantDb();
+    const body = await request.clone().json();
+    const { sql, restaurantId } = await getTenantDbWithFallback(body?.userId);
 
     // Rate limit: 20 approve requests per 15 minutes per restaurant
     const { limited } = checkRateLimit(`plaid-approve-${restaurantId}`, 20, 15 * 60 * 1000);
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest) {
 
     await ensurePlaidTables(sql);
 
-    const { transaction_id, category_id, category_name } = await request.json();
+    const { transaction_id, category_id, category_name } = body;
 
     if (!transaction_id || !category_id) {
       return NextResponse.json(
@@ -206,7 +207,8 @@ export async function POST(request: NextRequest) {
 // Bulk approve
 export async function PUT(request: NextRequest) {
   try {
-    const { sql, restaurantId } = await getTenantDb();
+    const bulkBody = await request.clone().json();
+    const { sql, restaurantId } = await getTenantDbWithFallback(bulkBody?.userId);
 
     // Rate limit: 20 approve requests per 15 minutes per restaurant (shared with POST)
     const { limited } = checkRateLimit(`plaid-approve-${restaurantId}`, 20, 15 * 60 * 1000);
@@ -216,7 +218,7 @@ export async function PUT(request: NextRequest) {
 
     await ensurePlaidTables(sql);
 
-    const { approvals } = await request.json();
+    const { approvals } = bulkBody;
 
     if (!Array.isArray(approvals) || approvals.length === 0) {
       return NextResponse.json(

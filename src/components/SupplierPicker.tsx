@@ -77,6 +77,7 @@ export default function SupplierPicker({ onConfirm, detectedSuppliers, userId }:
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [autoDetected, setAutoDetected] = useState<string[]>([]);
+  const [allBankMerchants, setAllBankMerchants] = useState<string[]>([]);
   const [detecting, setDetecting] = useState(false);
   const searchTimeout = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -91,6 +92,20 @@ export default function SupplierPicker({ onConfirm, detectedSuppliers, userId }:
         if (data?.transactions?.length > 0) {
           const found = extractSuppliersFromBankData(data.transactions);
           if (found.length > 0) setAutoDetected(found);
+
+          // Also store ALL unique merchant names for search
+          const allMerchants: Record<string, number> = {};
+          for (const txn of data.transactions) {
+            const name = txn.merchant_name || txn.name || "";
+            if (name && name.length >= 2) {
+              allMerchants[name] = (allMerchants[name] || 0) + 1;
+            }
+          }
+          setAllBankMerchants(
+            Object.entries(allMerchants)
+              .sort((a, b) => b[1] - a[1])
+              .map(([name]) => name)
+          );
         }
       })
       .catch(() => {})
@@ -100,7 +115,7 @@ export default function SupplierPicker({ onConfirm, detectedSuppliers, userId }:
   const allDetected = detectedSuppliers && detectedSuppliers.length > 0 ? detectedSuppliers : autoDetected;
   const hasDetected = allDetected.length > 0;
 
-  // Fetch autocomplete suggestions from the shared directory
+  // Fetch autocomplete suggestions from bank merchants + shared directory
   useEffect(() => {
     if (searchInput.length < 2) {
       setSuggestions([]);
@@ -111,29 +126,53 @@ export default function SupplierPicker({ onConfirm, detectedSuppliers, userId }:
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
 
     searchTimeout.current = setTimeout(async () => {
+      const allSelected = new Set([
+        ...Array.from(selected),
+        ...customSuppliers.map((s) => s.toLowerCase()),
+        ...allDetected.map((s) => s.toLowerCase()),
+      ]);
+
+      // Match bank merchants first (instant, no API call)
+      const searchLower = searchInput.toLowerCase();
+      const bankMatches: DirectorySupplier[] = allBankMerchants
+        .filter(name =>
+          name.toLowerCase().includes(searchLower) &&
+          !allSelected.has(name.toLowerCase())
+        )
+        .slice(0, 5)
+        .map((name, i) => ({ id: -(i + 1), name, website_url: null, auto_fetchable: false, usage_count: 0 }));
+
+      // Also search shared directory
       try {
         const res = await fetch(`/api/supplier-directory?q=${encodeURIComponent(searchInput)}`);
         if (res.ok) {
           const data = await res.json();
-          const allSelected = new Set([
-            ...Array.from(selected),
-            ...customSuppliers.map((s) => s.toLowerCase()),
-          ]);
-          const filtered = (data.suppliers || []).filter(
+          const directoryMatches = (data.suppliers || []).filter(
             (s: DirectorySupplier) => !allSelected.has(s.name.toLowerCase())
           );
-          setSuggestions(filtered);
-          setShowSuggestions(filtered.length > 0);
+
+          // Merge: bank matches first, then directory (deduplicated)
+          const seen = new Set(bankMatches.map(s => s.name.toLowerCase()));
+          const merged = [
+            ...bankMatches,
+            ...directoryMatches.filter((s: DirectorySupplier) => !seen.has(s.name.toLowerCase())),
+          ];
+          setSuggestions(merged);
+          setShowSuggestions(merged.length > 0);
+        } else {
+          setSuggestions(bankMatches);
+          setShowSuggestions(bankMatches.length > 0);
         }
       } catch {
-        // ignore search errors
+        setSuggestions(bankMatches);
+        setShowSuggestions(bankMatches.length > 0);
       }
-    }, 300);
+    }, 200);
 
     return () => {
       if (searchTimeout.current) clearTimeout(searchTimeout.current);
     };
-  }, [searchInput, selected, customSuppliers]);
+  }, [searchInput, selected, customSuppliers, allBankMerchants, allDetected]);
 
   function toggleSupplier(name: string) {
     setSelected((prev) => {

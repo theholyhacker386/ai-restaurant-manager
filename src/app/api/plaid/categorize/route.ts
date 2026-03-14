@@ -1,14 +1,17 @@
-import { NextResponse } from "next/server";
-import { getTenantDb } from "@/lib/tenant";
+import { NextRequest, NextResponse } from "next/server";
+import { getTenantDbWithFallback } from "@/lib/tenant";
 import { ensurePlaidTables } from "@/lib/plaid";
 import { categorizeTransactions } from "@/lib/categorize-transactions";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    const { sql, restaurantId } = await getTenantDb();
+    // Accept optional userId for onboarding context (falls back to auth session)
+    const body = await request.json().catch(() => ({}));
+    const userId = body?.userId;
+    const { sql, restaurantId } = await getTenantDbWithFallback(userId);
 
     // Rate limit: 20 categorize requests per 15 minutes per restaurant
     const { limited } = checkRateLimit(`plaid-categorize-${restaurantId}`, 20, 15 * 60 * 1000);
