@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { usePlaidLink } from "react-plaid-link";
 import SupplierPicker from "@/components/SupplierPicker";
+import ExpenseReviewer from "@/components/ExpenseReviewer";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -112,7 +113,7 @@ function extractSuppliersFromTransactions(txns: { amount: number; merchant_name?
     }
   }
 
-  return { likelySuppliers, otherCharges };
+  return { likelySuppliers: likelySuppliers.slice(0, 25), otherCharges };
 }
 
 /* ── Data Tag Parsing ──────────────────────────────────── */
@@ -238,6 +239,7 @@ function parseDataTags(text: string, session: SessionData): { cleanText: string;
     .replace(/\[SHOW_SUPPLIER_PICKER\]/g, "")
     .replace(/\[SHOW_SQUARE_CONNECT\]/g, "")
     .replace(/\[SHOW_BANK_CONNECT\]/g, "")
+    .replace(/\[SHOW_EXPENSE_REVIEW\]/g, "")
     .replace(/\[ADD_MENU_ITEMS:\[[\s\S]*?\]]/g, "")
     .replace(/\[ADD_INGREDIENTS:\[[\s\S]*?\]]/g, "")
     .replace(/\[SET_CATEGORIES:\[[\s\S]*?\]]/g, "")
@@ -299,7 +301,8 @@ function OnboardingChat() {
   const [bankAccounts, setBankAccounts] = useState<{ account_id: string; name: string; type: string; subtype: string; mask: string; balance: number }[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
   const [detectedSuppliers, setDetectedSuppliers] = useState<string[]>([]);
-  const [otherBankCharges, setOtherBankCharges] = useState<string[]>([]);
+  const [showExpenseReview, setShowExpenseReview] = useState(false);
+  const [expenseReviewMsgId, setExpenseReviewMsgId] = useState("");
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -511,6 +514,22 @@ function OnboardingChat() {
 
         // Check for inline component triggers
         if (data.reply.includes("[SHOW_SUPPLIER_PICKER]")) {
+          // If we don't have detected suppliers yet, try to detect from bank data
+          if (detectedSuppliers.length === 0 && updatedSession.bankConnected) {
+            try {
+              const acctRes = await fetch(`/api/plaid/accounts${userId ? `?userId=${userId}` : ""}`);
+              if (acctRes.ok) {
+                const acctData = await acctRes.json();
+                const txns = acctData.transactions || [];
+                const detected = extractSuppliersFromTransactions(txns);
+                if (detected.likelySuppliers.length > 0) {
+                  setDetectedSuppliers(detected.likelySuppliers);
+                }
+              }
+            } catch {
+              // Non-critical — will fall back to generic list
+            }
+          }
           setShowSupplierPicker(true);
           setSupplierPickerMsgId(aiMsg.id);
         }
@@ -521,6 +540,10 @@ function OnboardingChat() {
         if (data.reply.includes("[SHOW_BANK_CONNECT]")) {
           setShowBankConnect(true);
           setBankConnectMsgId(aiMsg.id);
+        }
+        if (data.reply.includes("[SHOW_EXPENSE_REVIEW]")) {
+          setShowExpenseReview(true);
+          setExpenseReviewMsgId(aiMsg.id);
         }
 
         // Save session to database
@@ -833,9 +856,8 @@ function OnboardingChat() {
               const txns = acctData.transactions || [];
               const detected = extractSuppliersFromTransactions(txns);
 
-              if (detected.likelySuppliers.length > 0 || detected.otherCharges.length > 0) {
+              if (detected.likelySuppliers.length > 0) {
                 setDetectedSuppliers(detected.likelySuppliers);
-                setOtherBankCharges(detected.otherCharges);
                 detectedSuppliersContext = ` We found merchants from bank transactions. Tell the user we found charges from their bank and show [SHOW_SUPPLIER_PICKER] so they can check which ones are food/ingredient suppliers. Do NOT list supplier names in your message text — the picker card will show them.`;
               }
             }
@@ -904,6 +926,10 @@ function OnboardingChat() {
             if (chatData.reply.includes("[SHOW_SUPPLIER_PICKER]")) {
               setShowSupplierPicker(true);
               setSupplierPickerMsgId(aiMsg.id);
+            }
+            if (chatData.reply.includes("[SHOW_EXPENSE_REVIEW]")) {
+              setShowExpenseReview(true);
+              setExpenseReviewMsgId(aiMsg.id);
             }
           }
           setThinking(false);
@@ -1104,6 +1130,31 @@ function OnboardingChat() {
         }
       }
     } catch { /* non-critical */ }
+
+    // After supplier confirmation, trigger expense categorization if bank is connected
+    if (sessionData.bankConnected) {
+      // Wait for AI to finish processing supplier messages first
+      await new Promise((r) => setTimeout(r, 4000));
+      const reviewMsgId = generateId();
+      const reviewMsg: Message = {
+        id: reviewMsgId,
+        role: "assistant",
+        content: "Now let\u2019s categorize your bank charges so we can track exactly where your money goes. I\u2019ve analyzed each charge and suggested a category \u2014 just review and approve! When you approve one, it automatically applies to ALL matching charges across your entire bank history.",
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, reviewMsg]);
+      setShowExpenseReview(true);
+      setExpenseReviewMsgId(reviewMsgId);
+    }
+  }
+
+  function handleExpenseReviewComplete(stats: { reviewed: number; total: number }) {
+    setShowExpenseReview(false);
+    if (stats.total > 0) {
+      sendMessage(`[SYSTEM: User just finished categorizing their bank expenses. ${stats.reviewed} out of ${stats.total} unique merchants were reviewed and approved. Each approval was automatically applied to all matching charges across their entire bank history. This step is complete. Continue to the next onboarding step.]`);
+    } else {
+      sendMessage(`[SYSTEM: Expense categorization step is complete (no transactions to categorize yet). Continue to the next onboarding step.]`);
+    }
   }
 
   /* ── Square Connect Handlers ───────────────────────── */
@@ -1301,9 +1352,8 @@ function OnboardingChat() {
         const txns = accountsData.transactions || [];
         const detected = extractSuppliersFromTransactions(txns);
 
-        if (detected.likelySuppliers.length > 0 || detected.otherCharges.length > 0) {
+        if (detected.likelySuppliers.length > 0) {
           setDetectedSuppliers(detected.likelySuppliers);
-          setOtherBankCharges(detected.otherCharges);
           sendMessage(
             `[SYSTEM: Bank connected successfully! We found merchants from the business account. ` +
             `Tell the user: "Your bank is connected! I found some places you buy from. Check off your food and paper suppliers below, and add any I missed." ` +
@@ -1685,7 +1735,13 @@ function OnboardingChat() {
                   {/* Inline SupplierPicker */}
                   {showSupplierPicker && msg.id === supplierPickerMsgId && (
                     <div className="mt-3">
-                      <SupplierPicker onConfirm={handleSupplierConfirm} detectedSuppliers={detectedSuppliers.length > 0 ? detectedSuppliers : undefined} otherCharges={otherBankCharges.length > 0 ? otherBankCharges : undefined} />
+                      <SupplierPicker onConfirm={handleSupplierConfirm} detectedSuppliers={detectedSuppliers.length > 0 ? detectedSuppliers : undefined} userId={userId || undefined} />
+                    </div>
+                  )}
+                  {/* Inline Expense Reviewer */}
+                  {showExpenseReview && msg.id === expenseReviewMsgId && (
+                    <div className="mt-3">
+                      <ExpenseReviewer userId={userId} onComplete={handleExpenseReviewComplete} />
                     </div>
                   )}
                   {/* Inline Square Connect */}

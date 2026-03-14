@@ -117,10 +117,16 @@ async function ensureSquareTables(sql: any, restaurantId: string) {
       total_discounts NUMERIC DEFAULT 0,
       net_revenue NUMERIC DEFAULT 0,
       order_count INTEGER DEFAULT 0,
+      cash_total NUMERIC DEFAULT 0,
+      card_total NUMERIC DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(restaurant_id, date)
     )
   `;
+
+  // Add cash/card columns if table already existed
+  await sql`ALTER TABLE daily_sales ADD COLUMN IF NOT EXISTS cash_total NUMERIC DEFAULT 0`;
+  await sql`ALTER TABLE daily_sales ADD COLUMN IF NOT EXISTS card_total NUMERIC DEFAULT 0`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS item_sales (
@@ -162,6 +168,8 @@ async function syncOrders(sql: any, restaurantId: string, startAt: string, endAt
     tips: number;
     discounts: number;
     orders: number;
+    cash: number;
+    card: number;
   }> = {};
   const itemTotals: Record<string, Record<string, { qty: number; revenue: number }>> = {};
 
@@ -211,13 +219,23 @@ async function syncOrders(sql: any, restaurantId: string, startAt: string, endAt
       const discountMoney = Number(order.total_discount_money?.amount || 0) / 100;
 
       if (!dailyTotals[dateStr]) {
-        dailyTotals[dateStr] = { revenue: 0, tax: 0, tips: 0, discounts: 0, orders: 0 };
+        dailyTotals[dateStr] = { revenue: 0, tax: 0, tips: 0, discounts: 0, orders: 0, cash: 0, card: 0 };
       }
       dailyTotals[dateStr].revenue += totalMoney;
       dailyTotals[dateStr].tax += taxMoney;
       dailyTotals[dateStr].tips += tipMoney;
       dailyTotals[dateStr].discounts += discountMoney;
       dailyTotals[dateStr].orders += 1;
+
+      // Extract cash vs card from tenders
+      for (const tender of order.tenders || []) {
+        const tenderAmount = Number(tender.amount_money?.amount || 0) / 100;
+        if (tender.type === "CASH") {
+          dailyTotals[dateStr].cash += tenderAmount;
+        } else {
+          dailyTotals[dateStr].card += tenderAmount;
+        }
+      }
 
       // Item-level sales
       if (!itemTotals[dateStr]) itemTotals[dateStr] = {};
@@ -239,12 +257,12 @@ async function syncOrders(sql: any, restaurantId: string, startAt: string, endAt
   for (const [date, totals] of Object.entries(dailyTotals)) {
     const netRevenue = totals.revenue - totals.tax - totals.discounts;
     await sql`
-      INSERT INTO daily_sales (id, restaurant_id, date, total_revenue, total_tax, total_tips, total_discounts, net_revenue, order_count)
+      INSERT INTO daily_sales (id, restaurant_id, date, total_revenue, total_tax, total_tips, total_discounts, net_revenue, order_count, cash_total, card_total)
       VALUES (
         ${"ds_" + date + "_" + restaurantId.slice(-6)},
         ${restaurantId}, ${date},
         ${totals.revenue}, ${totals.tax}, ${totals.tips}, ${totals.discounts},
-        ${netRevenue}, ${totals.orders}
+        ${netRevenue}, ${totals.orders}, ${totals.cash}, ${totals.card}
       )
       ON CONFLICT (restaurant_id, date) DO UPDATE SET
         total_revenue = EXCLUDED.total_revenue,
@@ -252,7 +270,9 @@ async function syncOrders(sql: any, restaurantId: string, startAt: string, endAt
         total_tips = EXCLUDED.total_tips,
         total_discounts = EXCLUDED.total_discounts,
         net_revenue = EXCLUDED.net_revenue,
-        order_count = EXCLUDED.order_count
+        order_count = EXCLUDED.order_count,
+        cash_total = EXCLUDED.cash_total,
+        card_total = EXCLUDED.card_total
     `;
   }
 

@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from "react";
 interface SupplierPickerProps {
   onConfirm: (selected: string[]) => void;
   detectedSuppliers?: string[];
-  otherCharges?: string[];
+  userId?: string;
 }
 
 interface DirectorySupplier {
@@ -33,19 +33,70 @@ const POPULAR_SUPPLIERS = [
 
 /* ── Component ─────────────────────────────────────── */
 
-export default function SupplierPicker({ onConfirm, detectedSuppliers, otherCharges }: SupplierPickerProps) {
+const NON_SUPPLIER_KEYWORDS = [
+  "square", "stripe", "paypal", "venmo", "zelle",
+  "irs", "internal revenue", "fla dept revenue", "dept of revenue",
+  "insurance", "geico", "progressive", "state farm", "american home shield",
+  "at&t", "verizon", "t-mobile", "spectrum", "comcast", "fpl", "duke energy", "utilities",
+  "netflix", "spotify", "hulu", "disney", "apple", "google", "amazon prime video", "adobe",
+  "facebook", "meta", "instagram",
+  "rent", "mortgage", "lease",
+  "bank", "chase", "wells fargo", "capital one",
+  "seaworld", "universal",
+  "adt", "simplisafe",
+  "sherwin", "home depot", "lowe",
+  "ace hardware",
+];
+
+function extractSuppliersFromBankData(txns: { amount: number; merchant_name?: string; name?: string }[]): string[] {
+  const merchantCounts: Record<string, number> = {};
+  for (const txn of txns) {
+    if (txn.amount <= 0) continue; // Only charges (positive in Plaid = money out)
+    const name = txn.merchant_name || txn.name || "";
+    if (!name || name.length < 2) continue;
+    merchantCounts[name] = (merchantCounts[name] || 0) + 1;
+  }
+
+  return Object.entries(merchantCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name]) => name)
+    .filter(name => {
+      const lower = name.toLowerCase();
+      return !NON_SUPPLIER_KEYWORDS.some(kw => lower.includes(kw));
+    })
+    .slice(0, 25);
+}
+
+export default function SupplierPicker({ onConfirm, detectedSuppliers, userId }: SupplierPickerProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [customSuppliers, setCustomSuppliers] = useState<string[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [suggestions, setSuggestions] = useState<DirectorySupplier[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [showOtherCharges, setShowOtherCharges] = useState(false);
+  const [autoDetected, setAutoDetected] = useState<string[]>([]);
+  const [detecting, setDetecting] = useState(false);
   const searchTimeout = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const hasDetected = detectedSuppliers && detectedSuppliers.length > 0;
-  const hasOtherCharges = otherCharges && otherCharges.length > 0;
+  // Auto-detect suppliers from bank data if none were passed in
+  useEffect(() => {
+    if (detectedSuppliers && detectedSuppliers.length > 0) return;
+    setDetecting(true);
+    fetch(`/api/plaid/accounts${userId ? `?userId=${userId}` : ""}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.transactions?.length > 0) {
+          const found = extractSuppliersFromBankData(data.transactions);
+          if (found.length > 0) setAutoDetected(found);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setDetecting(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allDetected = detectedSuppliers && detectedSuppliers.length > 0 ? detectedSuppliers : autoDetected;
+  const hasDetected = allDetected.length > 0;
 
   // Fetch autocomplete suggestions from the shared directory
   useEffect(() => {
@@ -104,7 +155,7 @@ export default function SupplierPicker({ onConfirm, detectedSuppliers, otherChar
     }
 
     // Check if it matches any existing supplier in the list
-    const allNames = hasDetected ? detectedSuppliers! : POPULAR_SUPPLIERS.map(s => s.name);
+    const allNames = hasDetected ? allDetected : POPULAR_SUPPLIERS.map(s => s.name);
     const match = allNames.find((s) => s.toLowerCase() === lowerName);
     if (match) {
       setSelected((prev) => new Set([...prev, match]));
@@ -184,11 +235,19 @@ export default function SupplierPicker({ onConfirm, detectedSuppliers, otherChar
         </p>
       )}
 
+      {/* Loading state */}
+      {detecting && (
+        <div className="flex items-center gap-2 py-4 justify-center">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-porch-teal" />
+          <span className="text-xs text-porch-brown-light">Checking your bank for suppliers...</span>
+        </div>
+      )}
+
       {/* Supplier list */}
-      {hasDetected ? (
+      {!detecting && hasDetected ? (
         /* Detected suppliers — vertical checkbox list */
         <div className="space-y-1.5 mb-3 max-h-72 overflow-y-auto">
-          {detectedSuppliers!.map((name) => {
+          {allDetected.map((name) => {
             const isSelected = selected.has(name);
             return (
               <button
@@ -218,7 +277,7 @@ export default function SupplierPicker({ onConfirm, detectedSuppliers, otherChar
             );
           })}
         </div>
-      ) : (
+      ) : !detecting ? (
         /* Fallback: Popular supplier grid */
         <div className="grid grid-cols-2 gap-2 mb-3">
           {POPULAR_SUPPLIERS.map((supplier) => {
@@ -248,55 +307,7 @@ export default function SupplierPicker({ onConfirm, detectedSuppliers, otherChar
             );
           })}
         </div>
-      )}
-
-      {/* Other bank charges — expandable section */}
-      {hasDetected && hasOtherCharges && (
-        <div className="mb-3">
-          <button
-            onClick={() => setShowOtherCharges(!showOtherCharges)}
-            className="flex items-center gap-2 text-xs text-porch-brown-light hover:text-porch-brown transition-colors w-full py-1.5"
-          >
-            <svg className={`w-3.5 h-3.5 transition-transform ${showOtherCharges ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-            <span>Other charges from your bank ({otherCharges!.length})</span>
-          </button>
-          {showOtherCharges && (
-            <div className="space-y-1.5 mt-1.5 max-h-48 overflow-y-auto pl-1">
-              {otherCharges!.map((name) => {
-                const isSelected = selected.has(name);
-                return (
-                  <button
-                    key={name}
-                    onClick={() => toggleSupplier(name)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-all ${
-                      isSelected
-                        ? "border-porch-teal bg-porch-teal/10"
-                        : "border-gray-100 bg-gray-50 hover:border-gray-200"
-                    }`}
-                  >
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                      isSelected
-                        ? "border-porch-teal bg-porch-teal"
-                        : "border-gray-300"
-                    }`}>
-                      {isSelected && (
-                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </div>
-                    <span className={`flex-1 text-xs ${isSelected ? "text-porch-teal font-medium" : "text-porch-brown-light"}`}>
-                      {name}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      ) : null}
 
       {/* Custom suppliers chips */}
       {customSuppliers.length > 0 && (

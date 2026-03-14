@@ -10,6 +10,8 @@ interface DailySale {
   total_discounts: number;
   net_revenue: number;
   order_count: number;
+  cash_total: number;
+  card_total: number;
 }
 
 interface TopItem {
@@ -27,6 +29,21 @@ interface SalesTotals {
   net_revenue: number;
   total_orders: number;
   avg_order_value: number;
+  total_cash: number;
+  total_card: number;
+}
+
+interface BankDeposit {
+  date: string;
+  deposit_amount: number;
+  description: string;
+}
+
+interface CashTracker {
+  cashSalesFromSquare: number;
+  totalBankDeposits: number;
+  bankDeposits: BankDeposit[];
+  variance: number;
 }
 
 interface LaborTotals {
@@ -110,6 +127,7 @@ export default function SalesPage() {
   const [totals, setTotals] = useState<SalesTotals | null>(null);
   const [laborTotals, setLaborTotals] = useState<LaborTotals | null>(null);
   const [laborShifts, setLaborShifts] = useState<LaborShift[]>([]);
+  const [cashTracker, setCashTracker] = useState<CashTracker | null>(null);
   const [loading, setLoading] = useState(true);
   const [rangeDays, setRangeDays] = useState(1);
   const [customStart, setCustomStart] = useState("");
@@ -139,6 +157,7 @@ export default function SalesPage() {
         setDailySales(salesData.dailySales || []);
         setTopItems(salesData.topItems || []);
         setTotals(salesData.totals || null);
+        setCashTracker(salesData.cashTracker || null);
       } else {
         throw new Error("Failed to load sales");
       }
@@ -291,6 +310,53 @@ export default function SalesPage() {
                 </p>
               </div>
             </div>
+
+            {/* Cash Tracker Card */}
+            {cashTracker && (cashTracker.cashSalesFromSquare > 0 || cashTracker.totalBankDeposits > 0) && (
+              <div className="bg-white rounded-2xl border border-porch-cream-dark/50 p-4">
+                <h2 className="text-sm font-semibold text-porch-brown mb-3">Cash Tracker</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-porch-cream/40 rounded-xl px-3 py-2">
+                    <p className="text-[9px] uppercase tracking-wider text-porch-brown-light/50 font-semibold">
+                      Cash Sales
+                    </p>
+                    <p className="text-lg font-bold text-porch-brown mt-0.5">
+                      ${cashTracker.cashSalesFromSquare.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-[10px] text-porch-brown-light/40">from Square POS</p>
+                  </div>
+                  <div className="bg-porch-cream/40 rounded-xl px-3 py-2">
+                    <p className="text-[9px] uppercase tracking-wider text-porch-brown-light/50 font-semibold">
+                      Bank Deposits
+                    </p>
+                    <p className="text-lg font-bold text-porch-brown mt-0.5">
+                      ${cashTracker.totalBankDeposits.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-[10px] text-porch-brown-light/40">
+                      {cashTracker.bankDeposits.length} deposit{cashTracker.bankDeposits.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                </div>
+                <div className={`mt-3 pt-3 border-t border-porch-cream-dark/30 flex items-center justify-between ${
+                  Math.abs(cashTracker.variance) < 1
+                    ? "text-status-good"
+                    : cashTracker.variance > 0
+                      ? "text-status-warning"
+                      : "text-porch-brown-light/60"
+                }`}>
+                  <p className="text-xs font-medium">
+                    {Math.abs(cashTracker.variance) < 1
+                      ? "All cash accounted for"
+                      : cashTracker.variance > 0
+                        ? "Cash not yet deposited"
+                        : "Deposited more than cash sales"}
+                  </p>
+                  <p className="text-sm font-bold">
+                    {cashTracker.variance >= 0 ? "" : "-"}${Math.abs(cashTracker.variance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Payroll Cost Card */}
             <div
