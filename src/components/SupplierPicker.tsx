@@ -40,12 +40,14 @@ const NON_SUPPLIER_KEYWORDS = [
   "at&t", "verizon", "t-mobile", "spectrum", "comcast", "fpl", "duke energy", "utilities",
   "netflix", "spotify", "hulu", "disney", "apple", "google", "amazon prime video", "adobe",
   "facebook", "meta", "instagram",
-  "rent", "mortgage", "lease",
+  "rent", "mortgage", "lease", "pennymac",
   "bank", "chase", "wells fargo", "capital one",
   "seaworld", "universal",
   "adt", "simplisafe",
-  "sherwin", "home depot", "lowe",
-  "ace hardware",
+  "car wash", "auto parts", "o'reilly",
+  "kia motors", "mitsubishi", "daytona",
+  "openai", "godaddy", "airbnb", "airdna",
+  "minutekey", "racetrac", "sunoco", "arco", "marathon", "buc-ee",
 ];
 
 function extractSuppliersFromBankData(txns: { amount: number; merchant_name?: string; name?: string }[]): string[] {

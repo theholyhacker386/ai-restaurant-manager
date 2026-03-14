@@ -75,11 +75,15 @@ const NON_SUPPLIER_KEYWORDS = [
   "internal revenue", "irs", "dept revenue", "tax", "fpl", "electric", "utilities",
   "insurance", "progressive", "geico", "allstate", "state farm",
   "spectrum", "comcast", "att", "t-mobile", "verizon",
-  "mortgage", "rent", "properties", "car payment", "loan",
+  "mortgage", "rent", "properties", "car payment", "loan", "pennymac",
   "apple", "google", "facebook", "meta", "adobe", "netflix", "hulu", "spotify",
-  "amazon prime video", "adt", "security", "home shield",
+  "amazon prime video", "adt", "security", "home shield", "simplisafe",
   "square inc", "stripe", "paypal",
   "seaworld", "disney", "universal",
+  "car wash", "auto parts", "o'reilly",
+  "kia motors", "mitsubishi", "daytona",
+  "openai", "godaddy", "airbnb", "airdna",
+  "minutekey", "racetrac", "sunoco", "arco", "marathon", "buc-ee",
 ];
 
 interface DetectedMerchants {
