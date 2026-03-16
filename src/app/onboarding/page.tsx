@@ -122,9 +122,16 @@ function extractSuppliersFromTransactions(txns: { amount: number; merchant_name?
 
 /* ── Data Tag Parsing ──────────────────────────────────── */
 
-function parseDataTags(text: string, session: SessionData): { cleanText: string; updatedSession: SessionData; email?: string } {
+function parseDataTags(text: string, session: SessionData): { cleanText: string; updatedSession: SessionData; email?: string; capturedName?: string } {
   const updated = { ...session };
   let email: string | undefined;
+
+  // User name
+  let capturedName: string | undefined;
+  const nameMatch = text.match(/\[SET_NAME:"([^"]+)"\]/);
+  if (nameMatch) {
+    capturedName = nameMatch[1];
+  }
 
   // Progress
   const progressMatch = text.match(/\[PROGRESS:(\d+)\]/);
@@ -250,11 +257,12 @@ function parseDataTags(text: string, session: SessionData): { cleanText: string;
     .replace(/\[SET_HOURS:\{[\s\S]*?\}]/g, "")
     .replace(/\[SET_TARGETS:\{.*?\}]/g, "")
     .replace(/\[SET_PIN:"?\d{4,6}"?]/g, "")
+    .replace(/\[SET_NAME:"[^"]*"\]/g, "")
     .replace(/\[ONBOARDING_COMPLETE]/g, "")
     .replace(/\[EXPENSES:\[[\s\S]*?\]]/g, "")
     .trim();
 
-  return { cleanText, updatedSession: updated, email };
+  return { cleanText, updatedSession: updated, email, capturedName };
 }
 
 /* ── Chat Component ────────────────────────────────────── */
@@ -502,7 +510,12 @@ function OnboardingChat() {
 
       const data = await res.json();
       if (data.reply) {
-        const { cleanText, updatedSession, email } = parseDataTags(data.reply, sessionData);
+        const { cleanText, updatedSession, email, capturedName } = parseDataTags(data.reply, sessionData);
+
+        // If the AI captured the user's name, save it
+        if (capturedName) {
+          setUserName(capturedName);
+        }
 
         // Save any new data to the real database tables immediately
         saveProgressively(sessionData, updatedSession);
@@ -698,6 +711,7 @@ function OnboardingChat() {
           sessionData: data,
           conversationHistory: history,
           progress: data.progress,
+          customerName: userName || undefined,
         }),
       });
     } catch (err) {

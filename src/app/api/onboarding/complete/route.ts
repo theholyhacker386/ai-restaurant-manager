@@ -137,7 +137,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { token: bodyToken, userId: bodyUserId, tempSessionId, sessionData, conversationHistory, progress } = body;
+    const { token: bodyToken, userId: bodyUserId, tempSessionId, sessionData, conversationHistory, progress, customerName } = body;
 
     const user = await resolveUser(request, bodyToken, bodyUserId, tempSessionId);
     if (!user) {
@@ -171,7 +171,7 @@ export async function PUT(request: Request) {
         ${user.id},
         ${sessionData?.businessInfo?.name || null},
         ${sessionData?.businessInfo?.type || null},
-        ${user.name || null},
+        ${customerName || user.name || null},
         ${JSON.stringify(sessionData?.menuItems || [])},
         ${JSON.stringify(sessionData?.ingredients || [])},
         ${JSON.stringify(meta)},
@@ -183,6 +183,7 @@ export async function PUT(request: Request) {
       ON CONFLICT (id) DO UPDATE SET
         business_name = COALESCE(${sessionData?.businessInfo?.name || null}, onboarding_sessions.business_name),
         business_type = COALESCE(${sessionData?.businessInfo?.type || null}, onboarding_sessions.business_type),
+        customer_name = COALESCE(${customerName || null}, onboarding_sessions.customer_name),
         menu_items = ${JSON.stringify(sessionData?.menuItems || [])},
         ingredients = ${JSON.stringify(sessionData?.ingredients || [])},
         completed_sections = ${JSON.stringify(meta)},
@@ -191,6 +192,11 @@ export async function PUT(request: Request) {
         restaurant_id = COALESCE(${restaurantId}, onboarding_sessions.restaurant_id),
         updated_at = NOW()
     `;
+
+    // Also update the user's name if captured during chat
+    if (customerName && user.id && !user.id.startsWith("anon_")) {
+      await sql`UPDATE users SET name = ${customerName} WHERE id = ${user.id}`;
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
