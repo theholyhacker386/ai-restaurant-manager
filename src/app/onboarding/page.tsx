@@ -322,6 +322,7 @@ function OnboardingChat() {
   const uploadTypeRef = useRef<"menu" | "receipt" | "spreadsheet">("menu");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const savingRef = useRef(false);
+  const sendMessageRef = useRef<((text?: string, fileResults?: any) => Promise<void>) | null>(null);
 
   // Auto-scroll
   useEffect(() => {
@@ -617,6 +618,9 @@ function OnboardingChat() {
     setThinking(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thinking, uploading, input, conversationHistory, sessionData, userName, isAnonymous, autoLoginToken, userId, tempSessionId]);
+
+  // Keep ref updated so event listeners always call the latest version
+  sendMessageRef.current = sendMessage;
 
   /* ── File Upload ─────────────────────────────────────── */
 
@@ -1311,9 +1315,9 @@ function OnboardingChat() {
         if (event.data.status === "success") {
           // Mark Square as connected in session data so the AI knows
           setSessionData((prev) => ({ ...prev, squareConnected: true }));
+          setShowSquareConnect(false);
 
           // After Square connects, try to sync data (business hours, location, sales)
-          // This makes the AI smarter — it won't need to ask for info Square already has
           (async () => {
             let squareContext = "The user just connected their Square POS successfully.";
             try {
@@ -1338,14 +1342,17 @@ function OnboardingChat() {
             } catch {
               // Sync failed — that's OK, we'll still acknowledge the connection
             }
-            sendMessage(`[SYSTEM] ${squareContext} Acknowledge the connection and move on to the next step.`);
+            // Use ref to always call the latest sendMessage (not a stale closure)
+            sendMessageRef.current?.(`[SYSTEM] ${squareContext} Acknowledge the connection briefly (e.g. "Square is connected! We're pulling in your data now.") and move on to the next step.`);
           })();
+        } else {
+          // Error connecting — tell the user
+          sendMessageRef.current?.(`[SYSTEM] Square connection failed. Let the user know something went wrong and they can try again. Include [SHOW_SQUARE_CONNECT] so they see the button.`);
         }
       }
     }
     window.addEventListener("message", handleSquareMessage);
     return () => window.removeEventListener("message", handleSquareMessage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ── Bank Connect Handlers ──────────────────────────── */
