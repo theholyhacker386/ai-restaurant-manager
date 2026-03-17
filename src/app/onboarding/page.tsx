@@ -2073,28 +2073,36 @@ function OnboardingChat() {
             )}
           </div>
 
-          {/* Text input */}
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleTextareaChange}
-            onKeyDown={handleKeyDown}
-            disabled={thinking || uploading}
-            placeholder={thinking ? "Thinking..." : "Type your answer..."}
-            rows={1}
-            className="flex-1 resize-none rounded-2xl border border-porch-cream-dark px-4 py-2.5 text-sm bg-porch-warm-white text-porch-brown focus:outline-none focus:border-porch-teal focus:ring-1 focus:ring-porch-teal disabled:bg-porch-cream disabled:text-porch-brown-light"
-          />
+          {/* Text input — locked when waiting for a connect action */}
+          {showSquareConnect || showBankConnect ? (
+            <div className="flex-1 rounded-2xl border border-porch-cream-dark px-4 py-2.5 text-sm bg-porch-cream text-porch-brown-light text-center">
+              {showSquareConnect ? "Use the Connect Square button above to continue" : "Use the Connect Bank button above to continue"}
+            </div>
+          ) : (
+            <>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={handleTextareaChange}
+                onKeyDown={handleKeyDown}
+                disabled={thinking || uploading}
+                placeholder={thinking ? "Thinking..." : "Type your answer..."}
+                rows={1}
+                className="flex-1 resize-none rounded-2xl border border-porch-cream-dark px-4 py-2.5 text-sm bg-porch-warm-white text-porch-brown focus:outline-none focus:border-porch-teal focus:ring-1 focus:ring-porch-teal disabled:bg-porch-cream disabled:text-porch-brown-light"
+              />
 
-          {/* Send button */}
-          <button
-            onClick={() => sendMessage()}
-            disabled={thinking || uploading || !input.trim()}
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-porch-teal hover:bg-porch-teal-light transition-colors disabled:bg-porch-cream-dark disabled:cursor-not-allowed"
-          >
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14m-7-7l7 7-7 7" />
-            </svg>
-          </button>
+              {/* Send button */}
+              <button
+                onClick={() => sendMessage()}
+                disabled={thinking || uploading || !input.trim()}
+                className="flex items-center justify-center w-10 h-10 rounded-full bg-porch-teal hover:bg-porch-teal-light transition-colors disabled:bg-porch-cream-dark disabled:cursor-not-allowed"
+              >
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14m-7-7l7 7-7 7" />
+                </svg>
+              </button>
+            </>
+          )}
         </div>
 
         <input
