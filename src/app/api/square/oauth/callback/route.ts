@@ -37,6 +37,8 @@ export async function GET(request: Request) {
       : "https://connect.squareup.com";
 
     // Exchange authorization code for access token
+    const redirectUri = `${baseUrl}/api/square/oauth/callback`;
+    console.log("Square OAuth: exchanging code, redirect_uri =", redirectUri, "env =", creds.environment);
     const tokenResponse = await fetch(
       `${squareBase}/oauth2/token`,
       {
@@ -47,15 +49,19 @@ export async function GET(request: Request) {
           client_secret: creds.applicationSecret,
           code,
           grant_type: "authorization_code",
-          redirect_uri: `${baseUrl}/api/square/oauth/callback`,
+          redirect_uri: redirectUri,
         }),
       }
     );
 
     const tokenData = await tokenResponse.json();
 
+    console.log("Square token exchange response status:", tokenResponse.status);
+    console.log("Square token exchange data keys:", Object.keys(tokenData));
+    if (tokenData.errors) console.error("Square token exchange errors:", JSON.stringify(tokenData.errors));
+
     if (!tokenResponse.ok || !tokenData.access_token) {
-      console.error("Square token exchange failed:", tokenData);
+      console.error("Square token exchange failed:", JSON.stringify(tokenData));
       return errorPage("Something went wrong connecting Square. You can close this window and try again.");
     }
 
